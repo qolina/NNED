@@ -1,0 +1,52 @@
+## format
+#event type
+#event sub type: argument roles
+
+life
+be-born: person time place
+marry: person time place
+divorce: person time place
+injure: agent victim instrument time place
+die: agent victim instrument time place
+
+movement
+transport: agent artifact vehicle price origin destination time
+
+transaction
+transfer-ownership: buyer seller beneficiary artifact price time place
+transfer-money: giver recipient beneficiary money time place
+
+business
+start-org: agent org time place
+merge-org: org time place
+declare-bankruptcy: org time place
+end: org time place
+
+conflict
+attack: attacker target instrument time place
+demonstrate: entity time place
+
+contact
+meet: entity time place
+phone-write: entity time
+
+personnel
+start-position: person entity position time place
+end-position: person entity position time place
+nominate: person entity position time place
+elect: person entity position time place
+
+justice
+arrest-jail: person agent crime time place
+RELEASE-PAROLE: person entity crime time place
+TRIAL-HEARING: defendant prosecutor adjudicator crime time place
+charge-indict: defendant prosecutor adjudicator crime time place
+sue: plaintiff defendant adjudicator crime time place
+convict: defendant adjudicator crime time place
+sentence: defendant adjudicator crime sentence time place
+fine: entity adjudicator money crime time place
+execute: person agent crime time place
+EXTRADITE: agent person destination origin crime time
+acquit: defendant adjudicator crime time place
+pardon: defendant adjudicator crime time place
+appeal: defendant prosecutor adjudicator crime time place
