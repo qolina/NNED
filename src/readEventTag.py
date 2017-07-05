@@ -18,16 +18,14 @@ def extractEvents(filename):
         #print eventArr
         eventArrOneDoc.extend(eventArr)
 
-    print event2str(eventArrOneDoc[0], "\t")
+    #print event2str(eventArrOneDoc[0], "\t")
     return eventArrOneDoc
 
-# event = [eventType, eventSubType, sentence_ldc_scope, anchor, (arg, role), (arg, role), ...]
+# event = [sentence_ldc_scope, eventType, eventSubType, anchor, (arg, role), (arg, role), ...]
 # output: sentence[sep]eventType[sep]eventSubtype[sep]anchor[sep]arg[sep]role[sep]arg[sep]role......
 def event2str(event, separator):
-    (eventType, eventSubType, sentence_ldc_scope, anchor) = event[:4]
     arguments = [arg[0]+separator+arg[1] for arg in event[4:]]
-
-    newArrangedEvent = [sentence_ldc_scope, eventType, eventSubType, anchor]
+    newArrangedEvent = event[:4]
     newArrangedEvent.extend(arguments)
     eventString = separator.join(newArrangedEvent)
     #print eventString
@@ -59,7 +57,7 @@ def extractEvent(eventEle):
         anchor = re.sub(r"\n", " ", anchor)
         #print "----Sentence", sentence_ldc_scope
         #print "----Anchor", anchor
-        event = [eventType, eventSubType, sentence_ldc_scope, anchor]
+        event = [sentence_ldc_scope, eventType, eventSubType, anchor]
 
         for eventMentionArgument in eventMention:
             if eventMentionArgument.tag != "event_mention_argument": continue
@@ -82,10 +80,10 @@ if __name__ == "__main__":
         print "## Processing ", filename
         eventArrOneDoc = extractEvents(dataDir+filename)
         if len(eventArrOneDoc) == 0: continue
-        #outfilename = dataDir + filename.strip(".apf.xml") + ".ee"
-        #outfile = open(outfilename, "w")
-        #for event in eventArrOneDoc:
-        #    eventString = event2str(event, "\t")
-        #    outfile.write(eventString + "\n")
-        #outfile.close()
-        #print "## Events writen to ", outfilename
+        outfilename = dataDir + filename.strip(".apf.xml") + ".ee"
+        outfile = open(outfilename, "w")
+        for event in eventArrOneDoc:
+            eventString = event2str(event, "\t")
+            outfile.write(eventString + "\n")
+        outfile.close()
+        print "## Events writen to ", outfilename
