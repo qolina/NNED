@@ -20,7 +20,7 @@ business
 start-org: agent org time place
 merge-org: org time place
 declare-bankruptcy: org time place
-end: org time place
+end-org: org time place
 
 conflict
 attack: attacker target instrument time place

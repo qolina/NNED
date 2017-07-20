@@ -1,6 +1,8 @@
 import os
 import re
 import sys
+import cPickle
+from aceEventUtil import event2str
 from xml.etree.ElementTree import ElementTree
 
 # root: sourcefile
@@ -21,20 +23,11 @@ def extractEvents(filename):
     #print event2str(eventArrOneDoc[0], "\t")
     return eventArrOneDoc
 
-# event = [sentence_ldc_scope, eventType, eventSubType, anchor, (arg, role), (arg, role), ...]
-# output: sentence[sep]eventType[sep]eventSubtype[sep]anchor[sep]arg[sep]role[sep]arg[sep]role......
-def event2str(event, separator):
-    arguments = [arg[0]+separator+arg[1] for arg in event[4:]]
-    newArrangedEvent = event[:4]
-    newArrangedEvent.extend(arguments)
-    eventString = separator.join(newArrangedEvent)
-    #print eventString
-    return eventString
-
 # forth_layer(event): [optional]event_argument, event_mention
 # fifth_layer(event_mention): extent, ldc_scope, anchor, [optional]event_mention_argument
 # sixth_layer(event_mention_argument): extent
-# event = [eventType, eventSubType, sentence_ldc_scope, anchor, (arg, role), (arg, role), ...]
+# event_v1 = [sentence_ldc_scope, eventType, eventSubType, anchorText, (argText, role), (argText, role), ...]
+# event_v2 = [(sentence_ldc_scope, index), eventType, eventSubType, (anchorText, index), (argText, role, index), (argText, role, index), ...]
 def extractEvent(eventEle):
     #print eventEle.attrib
     eventType = eventEle.attrib["TYPE"]
@@ -51,20 +44,30 @@ def extractEvent(eventEle):
     #print "-- Event Mention:" 
     for eventMention in eventEle:
         if eventMention.tag != "event_mention": continue
-        sentence_ldc_scope = eventMention[1][0].text
-        sentence_ldc_scope = re.sub(r"\n", " ", sentence_ldc_scope).strip() + "."
-        anchor = eventMention[2][0].text
-        anchor = re.sub(r"\n", " ", anchor)
-        #print "----Sentence", sentence_ldc_scope
+        sentenceElement = eventMention[1][0]
+        sentence_ldc_scope = sentenceElement .text
+        sentence_ldc_scope = re.sub(r"\n", " ", sentence_ldc_scope).strip()
+        sentence_index = (int(sentenceElement.attrib["START"]), int(sentenceElement.attrib["END"]))
+        sentence = (sentence_ldc_scope, (0, sentence_index[1]-sentence_index[0]))
+
+        anchorEle = eventMention[2][0]
+        anchorText = anchorEle.text
+        anchorText = re.sub(r"\n", " ", anchorText)
+        anchor_index = (int(anchorEle.attrib["START"])-sentence_index[0], int(anchorEle.attrib["END"])-sentence_index[0])
+        anchor = (anchorText, anchor_index)
+        #print "----Sentence", sentence
         #print "----Anchor", anchor
-        event = [sentence_ldc_scope, eventType, eventSubType, anchor]
+
+        event = [sentence, eventType, eventSubType, anchor]
 
         for eventMentionArgument in eventMention:
             if eventMentionArgument.tag != "event_mention_argument": continue
             argRole = eventMentionArgument.attrib["ROLE"]
-            argText = eventMentionArgument[0][0].text
+            argElement = eventMentionArgument[0][0]
+            argText = argElement .text
             argText = re.sub(r"\n", " ", argText)
-            arg = (argText, argRole)
+            arg_index = (int(argElement.attrib["START"])-sentence_index[0], int(argElement.attrib["END"])-sentence_index[0])
+            arg = (argText, argRole, arg_index)
             event.append(arg)
             #print arg
         eventArr.append(event)
@@ -80,10 +83,13 @@ if __name__ == "__main__":
         print "## Processing ", filename
         eventArrOneDoc = extractEvents(dataDir+filename)
         if len(eventArrOneDoc) == 0: continue
-        outfilename = dataDir + filename.strip(".apf.xml") + ".ee"
+        outfilename = dataDir + filename.replace("apf.xml", "ee")
         outfile = open(outfilename, "w")
-        for event in eventArrOneDoc:
-            eventString = event2str(event, "\t")
-            outfile.write(eventString + "\n")
+        cPickle.dump(eventArrOneDoc, outfile)
+        ## to string version for output
+        #for event in eventArrOneDoc:
+        #    print event
+        #    eventString = event2str(event, "|||")
+        #    outfile.write(eventString + "\n")
         outfile.close()
         print "## Events writen to ", outfilename

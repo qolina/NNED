@@ -1,0 +1,18 @@
+
+######################### main programs
+1. splitACETrainTest.py
+	Split ACE/EngMix or ACE/CnMix into train/test set according to a popular testFile
+
+2. eventExtFromRaw.py
+	Extract events from raw *.xml files, and output *.ee files
+
+3. prepareDataSet.py
+	Extract One-Sentence-One-Event events, and output all OSOE event instances into one file (train.oneEventSent.txt)
+
+4. bs_attention.py
+	Baseline: use attention to conduct argument extraction
+
+######################### utility programs
+1. aceEventUtil.py
+	transition from ace event to event string, and vice versa
+	loading event hierarchy from ACE-event-argument.txt
