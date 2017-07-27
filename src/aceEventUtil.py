@@ -67,8 +67,9 @@ def loadEventHierarchy(filename):
         eventType = arr[0]
         #print eventType
         for line in arr[1:]:
-            eventSubType = line[:line.find(":")]
-            argRoles = line[line.find(":")+1:].split()
+            eventSubType = line[:line.find(":")].lower()
+            argRoles = line[line.find(":")+1:].lower().split()
+            argRoles = sorted(argRoles)
             #print (eventSubType, argRoles)
             eventSubTypeRoleHash[eventSubType] = argRoles
             eventSubTypeHash[eventSubType] = eventType
