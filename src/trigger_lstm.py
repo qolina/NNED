@@ -9,7 +9,11 @@ import cPickle
 from collections import Counter
 from aceEventUtil import loadEventHierarchy
 #from get_constituent_topdown_oracle import unkify
-from util import outputPRF, loadVocab, loadTrainData, loadPretrain
+from util import outputPRF, outputParameters
+from util import loadVocab, loadTag, loadTrainData, loadPretrain
+from util import output_normal_pretrain, output_dynet_format
+from util import check_trigger, check_trigger_test, check_data
+from util import get_trigger, evalPRF, evalPRF_iden
 
 import numpy as np
 from nltk.tokenize import sent_tokenize, word_tokenize
@@ -34,48 +38,12 @@ def arr2tensor(arr):
     tensor = autograd.Variable(torch.LongTensor(arr), requires_grad=False)
     return tensor
 
-def get_trigger(sent_tags):
-    triggers = [(word_idx, tag) for word_idx, tag in enumerate(sent_tags) if tag != 0]
-    return triggers
-
-def evalPRF(items_in_docs_gold, items_in_docs):
-    debug = False
-    if 0:
-        print items_in_docs_gold
-        print items_in_docs
-    common_in_docs = []
-    num_in_docs_gold = []
-    num_in_docs = []
-    for items_in_doc, items_in_doc_gold in zip(items_in_docs_gold, items_in_docs):
-        common_in_doc = [1 for item_gold, item in zip(items_in_doc_gold, items_in_doc) if item_gold == item]
-
-        common_in_docs.append(len(common_in_doc))
-        num_in_docs_gold.append(len(items_in_doc_gold))
-        num_in_docs.append(len(items_in_doc))
-
-    common = sum(common_in_docs)
-    num_gold = sum(num_in_docs_gold)
-    num = sum(num_in_docs)
-
-    if debug:
-        print "-- common, num_gold, num:", common, num_gold, num
-        print "-- common_in_docs", common_in_docs
-        print "-- num_in_docs_gold", num_in_docs_gold
-        print "-- num_in_docs", num_in_docs
-
-    if common == 0: return 0.0, 0.0, 0.0
-
-    pre = common*100.0/num
-    rec = common*100.0/num_gold
-    f1 = 2*pre*rec/(pre+rec)
-
-    return pre, rec, f1
-
 def eval_model(data, model, loss_function, data_flag, gpu):
+    debug = False
     loss_all = 0
     gold_results = []
     pred_results = []
-    for sent, tags in data:
+    for sent, tags, gold_triggers in data:
 
         sentence_in = arr2tensor(sent)
         targets = arr2tensor(tags)
@@ -84,51 +52,33 @@ def eval_model(data, model, loss_function, data_flag, gpu):
             sentence_in = sentence_in.cuda()
             targets = targets.cuda()
 
-        tag_scores = model(sentence_in, gpu)
-        if gpu: tag_scores = tag_scores.cpu()
+        tag_space, tag_scores, tag_space_iden = model(sentence_in, gpu)
 
-        tag_outputs = tag_scores.data.numpy().argmax(axis=1)
-        gold_results.append(get_trigger([t for t in tags]))
-        pred_results.append(get_trigger(tag_outputs.tolist()))
+        _, tag_outputs = tag_scores.data.max(1)
+        if gpu: tag_outputs = tag_outputs.cpu()
+        #print tag_outputs.numpy().tolist()
+        sys_triggers = get_trigger(tag_outputs.view(len(tags)).numpy().tolist())
+        gold_results.append(gold_triggers)
+        pred_results.append(sys_triggers)
 
-        if gpu: targets = targets.cpu()
-        loss = loss_function(tag_scores, targets)
-        loss_all += loss.data.numpy()[0]
+        if debug:
+            if len(gold_results) in range(10, 20):
+                if len(gold_triggers) == 0: continue
+                print "-gold tag", gold_triggers
+                print "-out tag", sys_triggers
+        #loss = loss_function(tag_scores, targets)
+        loss = loss_function(tag_space, targets)
+        loss_all += loss.data[0]
     prf = evalPRF(gold_results, pred_results)
-    return loss_all, prf
-
-
-def example(model, sent, gpu):
-    example_sent_in = arr2tensor(sent)
-    if gpu:
-        example_sent_in = example_sent_in.cuda()
-    example_model_out = model(example_sent_in)
-    if gpu:
-        example_model_out = example_model_out.cpu()
-    example_out = example_model_out.data.numpy().argmax(axis=1)
-    print "## results on example sent:", 
-    print example_out
-
-def check_data(data, vocab):
-    #id2word = dict([(word_index, word) for word, word_index in vocab])
-
-    vocab_index = [word_index for item in data for word_index in item[0]]
-    counter_index = Counter(vocab_index)
-    vocab_size = len(counter_index)
-    word_df_one = [word_index for word_index, df in counter_index.items() if df == 1]
-    #print min(vocab_index), counter_index[min(vocab_index)], max(vocab_index), counter_index[max(vocab_index)], min(counter_index.values()), max(counter_index.values())
-    new_data = [([word_index if word_index not in word_df_one else vocab_size-1 for word_index in sent], tags) for sent, tags in data]
-    for sent, tags in data:
-        if len(sent) < 1 or len(tags) < 1:
-            print "-- 0-length data", sent, tags
-    return new_data
+    prf_iden = evalPRF_iden(gold_results, pred_results)
+    return loss_all, prf, prf_iden
 
 def load_data():
-    train_filename, pretrain_embedding_filename, tag_filename, vocab_filename, test_filename = parseArgs(sys.argv)
+    train_filename, pretrain_embedding_filename, tag_filename, vocab_filename, test_filename, model_path = parseArgs(sys.argv)
 
 # pretrain embedding: matrix (vocab_size, pretrain_embed_dim)
     pretrain_embedding = loadPretrain(pretrain_embedding_filename)
-    print "## pretrained embedding loaded.", time.asctime()
+    print "## pretrained embedding loaded.", time.asctime(), pretrain_embedding.shape
 
 # vocab: word: word_id
     vocab = loadVocab(vocab_filename)
@@ -137,23 +87,25 @@ def load_data():
 # train test
     training_data = loadTrainData(train_filename)
     print "## train loaded.", train_filename, time.asctime()
-    training_data = check_data(training_data, vocab)
+    #training_data = check_data(training_data, vocab)
     test_data = loadTrainData(test_filename)
     print "## test loaded.", test_filename, time.asctime()
-    test_data = check_data(test_data, vocab)
+    #test_data = check_data(test_data, vocab)
+    #check_trigger_test(training_data, test_data)
 
 # tags_data: tag_name: tag_id
-    tags_data = loadVocab(tag_filename)
-    tags_data["NULL"] = 0
+    tags_data = loadTag(tag_filename)
     print "## event tags loaded.", time.asctime()
 
-    return training_data, test_data, vocab, tags_data, pretrain_embedding
-
+    #for sent, tag in training_data:
+    #    check_trigger(tag)
+    #for sent, tag in test_data:
+    #    check_trigger(tag)
+    return training_data, test_data, vocab, tags_data, pretrain_embedding, model_path
 
 def get_random_embedding(vocab_size, random_dim):
     random_embedding = np.random.uniform(-1, 1, (vocab_size, random_dim))
     return np.matrix(random_embedding)
-
 
 ##############
 def getArg(args, flag):
@@ -170,19 +122,35 @@ def parseArgs(args):
     #arg4 = getArg(args, "-dev")
     arg4 = getArg(args, "-vocab")
     arg5 = getArg(args, "-test")
-    return [arg1, arg2, arg3, arg4, arg5]
+    arg6 = getArg(args, "-model")
+    return [arg1, arg2, arg3, arg4, arg5, arg6]
 
 
 def main():
 
-    training_data, test_data, vocab, tags_data, pretrain_embedding = load_data()
-    training_data = training_data[:-500]
-    dev_data = training_data[-500:]
+    training_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data()
+    model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
+    if False:
+        dev_sent_ids = random.sample(range(len(training_data)), 500)
+        dev_data = [training_data[i] for i in dev_sent_ids]
+        training_data = [training_data[i] for i in range(len(training_data)) if i not in dev_sent_ids]
+    else:
+        training_data = training_data[:-500]
+        dev_data = training_data[-500:]
     vocab_size, pretrain_embed_dim = pretrain_embedding.shape
     tagset_size = len(tags_data)
+
+    #output_normal_pretrain(pretrain_embedding, vocab, "../ni_data/ace.pretrain300.vectors")
+    #output_dynet_format(training_data, vocab, "../ni_data/ace_trigger.train")
+    #output_dynet_format(dev_data, vocab, "../ni_data/ace_trigger.dev")
+    #output_dynet_format(test_data, vocab, "../ni_data/ace_trigger.test")
+
     #sys.exit(0)
 
-    random_dim = 50
+    training_data = [(item[0], item[1], get_trigger(item[1])) for item in training_data]
+    dev_data = [(item[0], item[1], get_trigger(item[1])) for item in dev_data]
+    test_data = [(item[0], item[1], get_trigger(item[1])) for item in test_data]
+    random_dim = 10
 
     gpu = torch.cuda.is_available()
     print "gpu available:", gpu
@@ -190,66 +158,91 @@ def main():
     dropout = 0.5
     bilstm = True
     num_layers = 1
-    iteration_num = 30
-    Hidden_dim = 100
-    learning_rate = 0.05
+    iteration_num = 200
+    Hidden_dim = 300
+    learning_rate = 0.03
     Embedding_dim = pretrain_embed_dim
 
+    conv_width1 = 2
+    conv_width2 = 3
+    conv_filter_num = 300
+    hidden_dim_snd = 300
     para_arr = [vocab_size, tagset_size, Embedding_dim, Hidden_dim]
     para_arr.extend([dropout, bilstm, num_layers, gpu, iteration_num, learning_rate])
     para_arr.extend([len(training_data), len(dev_data), len(test_data)])
+    para_arr.extend([conv_width1, conv_width2, conv_filter_num, hidden_dim_snd])
+    param_str = "p"+str(Embedding_dim) + "_hd" + str(Hidden_dim) + "_2hd" + str(hidden_dim_snd) + "_f" + str(conv_filter_num) + "_c" + str(conv_width1) + "_c" + str(conv_width2) + "_lr" + str(learning_rate*100)# + "_" + str() + "_" + str()
+    model_path += param_str
+    para_arr.extend([model_path])
     outputParameters(para_arr)
     #sys.exit(0)
 
 # init model
-    model = LSTMTrigger(pretrain_embedding, pretrain_embed_dim, Hidden_dim, vocab_size, tagset_size, dropout, bilstm, num_layers, random_dim, gpu)
-    loss_function = nn.NLLLoss()
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+    model = LSTMTrigger(pretrain_embedding, pretrain_embed_dim, Hidden_dim, vocab_size, tagset_size, dropout, bilstm, num_layers, random_dim, gpu, conv_width1, conv_width2, conv_filter_num, hidden_dim_snd)
+    #loss_function = nn.NLLLoss()
+    loss_function = nn.CrossEntropyLoss()
+    parameters = filter(lambda a:a.requires_grad, model.parameters())
+    optimizer = optim.SGD(parameters, lr=learning_rate)
+    #optimizer = optim.Adadelta(parameters, lr=learning_rate)
 
 # training
+    best_f1 = -1.0
     for epoch in range(iteration_num):
-        for sent, tags in training_data:
+        for sent, tags, gold_triggers in training_data:
+            iden_tags = [1 if tag != 0 else tag for tag in tags]
 
             model.zero_grad()
             model.hidden = model.init_hidden(gpu)
 
             sentence_in = arr2tensor(sent)
             targets = arr2tensor(tags)
+            iden_targets = arr2tensor(iden_tags)
 
             if gpu:
                 sentence_in = sentence_in.cuda()
                 targets = targets.cuda()
+                iden_targets = iden_targets.cuda()
 
-            tag_scores = model(sentence_in, gpu)
+            tag_space, tag_scores, tag_space_iden = model(sentence_in, gpu)
 
-            if gpu:
-                tag_scores = tag_scores.cpu()
-                targets = targets.cpu()
-                #print len(tag_scores), len(targets)
-
-            loss = loss_function(tag_scores, targets)
+            #loss = loss_function(tag_scores, targets)
+            loss = loss_function(tag_space, targets) + loss_function(tag_space_iden, iden_targets)
+            #loss_iden = loss_function(tag_space_iden, iden_targets)
+            #loss += loss_iden
             loss.backward()
             optimizer.step()
 
-            #if sentence_id % 2000 == 0:
-            #    print "## ", sentence_id, time.asctime()
+        loss_train, prf_train, prf_train_iden = eval_model(training_data, model, loss_function, "train", gpu)
+        print "## train results on epoch:", epoch, Tab, loss_train, time.asctime(), Tab,
+        outputPRF(prf_train)
+        print "## Iden result:", 
+        outputPRF(prf_train_iden)
 
-        if epoch == 0 or (epoch+1) % 1 == 0:
-            loss_train, prf_train = eval_model(training_data, model, loss_function, "train", gpu)
-            print "## train results on epoch:", epoch, Tab, loss_train, time.asctime(), Tab,
-            outputPRF(prf_train)
-        if epoch % (3-1) == 0:
-            loss_dev, prf_dev = eval_model(dev_data, model, loss_function, "dev", gpu)
-            print "##-- dev results on epoch", epoch, Tab, loss_dev, time.asctime(), Tab,
-            outputPRF(prf_dev)
-        if epoch % 10 == 0:
-            loss_test, prf_test = eval_model(test_data, model, loss_function, "test", gpu)
+# result on dev
+        loss_dev, prf_dev, prf_dev_iden = eval_model(dev_data, model, loss_function, "dev", gpu)
+        if prf_dev[2] > best_f1:
+            print "##-- New best dev results on epoch", epoch, Tab, best_f1, "(old best)", Tab, loss_dev, time.asctime(), Tab,
+            best_f1 = prf_dev[2]
+            torch.save(model, model_path)
+        else:
+            print "##-- dev results on epoch", epoch, Tab, best_f1, "(best f1)", Tab, loss_dev, time.asctime(), Tab,
+        outputPRF(prf_dev)
+        print "## Iden result:",
+        outputPRF(prf_dev_iden)
+# result on test
+        if epoch >= 50 and epoch % 10 == 0:
+            loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test", gpu)
             print "##-- test results on epoch", epoch, Tab, loss_test, time.asctime(), Tab,
+            print "## Iden result:",
             outputPRF(prf_test)
 
-    loss_test, prf_test = eval_model(test_data, model, loss_function, "test", gpu)
-    print "## test results", loss_test, time.asctime(), Tab,
+# final result on test
+    model = torch.load(model_path)
+    loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test", gpu)
+    print "## Final results on test", loss_test, time.asctime(), Tab,
     outputPRF(prf_test)
+    print "## Iden result:",
+    outputPRF(prf_test_iden)
 
 
 if __name__ == "__main__":
