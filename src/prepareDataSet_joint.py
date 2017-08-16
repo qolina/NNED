@@ -51,7 +51,7 @@ def negSent2JointTrain(negSents, posSentNum):
     neg_training_data = []
     for sentId, (sent_id, sent) in enumerate(negSents):
         wordsIn = wordpunct_tokenize(sent)
-        eventTypeSequence = [-1 for i in range(len(wordsIn))]
+        eventTypeSequence = ["none" for i in range(len(wordsIn))]
         neg_training_data.append((str(sentId + posSentNum), sent, eventTypeSequence))
     return neg_training_data
 
@@ -77,12 +77,12 @@ def roleModify(eventSubType, role):
 
 # -InputFormat of sentHash: sent:eventArr
 #   -event = [(sentence_ldc_scope, index), eventType, eventSubType, (anchorText, index), (argText, role, index), (argText, role, index), ...]
-# -OutputFormat of jointTrain: (sentenceId, sentence, eventTypeSequence, eventArr)
+# -OutputFormat of jointTrain: (sentenceId, sentence, eventTypeSequence, event)
 #   -event: triggerIndex, roleSequence
 def sent2JointTrain(sentHash, testFlag, eventSubTypeRoleHash):
     #eventTypeArr = sorted(eventSubTypeRoleHash.keys())
 
-    debug = False
+    debug = True
     training_data = []
     sentenceArr = []
     for sentenceRaw, eventArr in sentHash.items():
@@ -97,7 +97,7 @@ def sent2JointTrain(sentHash, testFlag, eventSubTypeRoleHash):
             print "-- raw sent:", sentenceRaw
             print "-- wordsInSent:", wordsIn
 
-        eventTypeSequence = [-1 for i in range(len(wordsIn))]
+        eventTypeSequence = ["none" for i in range(len(wordsIn))]
         trigEventArr = []
 
         for event in eventArr:
@@ -121,7 +121,8 @@ def sent2JointTrain(sentHash, testFlag, eventSubTypeRoleHash):
             trig_text_pre = sentenceRaw[:trg_index[0]]
             trig_text_by_index = sentenceRaw[trg_index[0]:trg_index[1]+1]
             if trigger_text != trig_text_by_index:
-                print "-- Error!! trigger text, trigger char index", trigger, "###", trig_text_by_index
+                print "-- Error!! trigger text, trigger char index", trigger, "###", trig_text_by_index, trg_index
+                print sentenceRaw
                 continue
             wordsInTrg = wordpunct_tokenize(trigger_text)
             word_num_pre = len(wordpunct_tokenize(trig_text_pre))
@@ -282,6 +283,15 @@ def obtainAllEvents(dataDir):
         all_events.extend(events_in_doc)
     return all_neg_sents, all_events
 
+# -InputFormat of jointTrain: (sentenceId, sentence, eventTypeSequence, event)
+#   -event: triggerIndex, roleSequence
+# -OutputFormat of trigger: (sentenceId, sentence, eventTypeSequence, event)
+def outputTriggerStr(event_item):
+    sent_id, sent_text, event_type_seq = event_item[:3]
+    #event_type_seq = [str(item) for item in event_type_seq]
+    trigger_str = sent_text + "\t" + " ".join(event_type_seq)
+    return trigger_str
+
 
 def loadArguments(filename):
     eventSubTypeHash, eventSubTypeRoleHash = loadEventHierarchy(filename)
@@ -317,13 +327,16 @@ if __name__ == "__main__":
     print "# data", len(training_data), len(neg_training_data)
 
 
-    if devFlag or testFlag:
-        training_data.extend(neg_training_data)
+    if not (devFlag and testFlag):
+        neg_training_data = neg_training_data[:negSentNum]
+    training_data.extend(neg_training_data)
     outfile = open(sys.argv[3], "w")
-    cPickle.dump(training_data, outfile)
-    #for jointTrain in training_data:
-    #    jointTrain_str = jointTrain2str(jointTrain, " ||| ", " ")
-    #    outfile.write(jointTrain_str + "\n")
+    #cPickle.dump(training_data, outfile)
+    for jointTrain in training_data:
+        #jointTrain_str = jointTrain2str(jointTrain, " ||| ", " ")
+        #outfile.write(jointTrain_str + "\n")
+        trigger_str = outputTriggerStr(jointTrain)
+        outfile.write(trigger_str + "\n")
     outfile.close()
     print "## events writen to", outfile.name
 

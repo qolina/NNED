@@ -30,7 +30,7 @@ def parseSGML(filename):
     line_content = sgm_parser.line_content
     content = content.replace("\n", " ")
     if filename.find("FLOPPINGACES_20041114.1240.03") >= 0:
-        content = content.replace("&", "&----")
+        content = content.replace("&----", "&")
         line_content = [line.replace("&----", "&") for line in line_content]
     sentences = []
 
