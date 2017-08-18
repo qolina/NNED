@@ -29,7 +29,7 @@ def parseSGML(filename):
     content = sgm_parser.content
     line_content = sgm_parser.line_content
     content = content.replace("\n", " ")
-    if filename.find("FLOPPINGACES_20041114.1240.03") >= 0:
+    if filename.find("FLOPPINGACES_20041114.1240.03") >= 0 or filename.find("CNN_CF_20030304.1900.04") >= 0 or filename.find("BACONSREBELLION_20050226.1317") >= 0 or filename.find("CNN_ENG_20030616_130059.25") >= 0 or filename.find("FLOPPINGACES_20050217.1237.014") >= 0:
         content = content.replace("&----", "&")
         line_content = [line.replace("&----", "&") for line in line_content]
     sentences = []
@@ -77,8 +77,8 @@ def parseSGML(filename):
                 print "------##", sent_id, (sent_st_in_line, sent_ed_in_line), (sent_st, sent_ed)
                 print sent
             sentences.append(((sent_st, sent_ed), sent))
-    #for sent_id, (sent_span, sent) in enumerate(sentences[:]):
-    #    print "##",sent_id, sent_span, sent
+    for sent_id, (sent_span, sent) in enumerate(sentences[:]):
+        print "##",sent_id, sent_span, sent
     return sentences[3:], content
     #return line_content
 
@@ -160,6 +160,8 @@ def main():
     line_num = 0
     for filename in fileList[:]:
         if not (os.path.isfile(dataDir + filename) and filename.endswith(".sgm")): continue
+        #if not filename.startswith("CNN_CF_20030304.1900.04"): continue
+        #if not filename.startswith("BACONSREBELLION_20050226.1317"): continue
         sentences_in_doc, content = parseSGML(dataDir+filename)
         line_num += len(sentences_in_doc)
         eventArrOneDoc = extractEvents(dataDir+filename)

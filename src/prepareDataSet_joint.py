@@ -118,11 +118,13 @@ def sent2JointTrain(sentHash, testFlag, eventSubTypeRoleHash):
             if trigger_text == "e war":
                 print "Error trigger", trigger_text
                 continue
+            if trigger_text == "Q&A":
+                trigger_text = "Q&----A"
             trig_text_pre = sentenceRaw[:trg_index[0]]
             trig_text_by_index = sentenceRaw[trg_index[0]:trg_index[1]+1]
             if trigger_text != trig_text_by_index:
                 print "-- Error!! trigger text, trigger char index", trigger, "###", trig_text_by_index, trg_index
-                print sentenceRaw
+                print sentence[1], sentenceRaw
                 continue
             wordsInTrg = wordpunct_tokenize(trigger_text)
             word_num_pre = len(wordpunct_tokenize(trig_text_pre))
@@ -269,6 +271,9 @@ def obtainAllEvents(dataDir):
 
     for filename in fileList:
         if not (os.path.isfile(dataDir + filename) and filename.endswith("ee")): continue
+        #if not filename.startswith("CNN_CF_20030304.1900.04"): continue
+        #if not filename.startswith("BACONSREBELLION_20050226.1317"): continue
+        #if not filename.startswith("AGGRESSIVEVOICEDAILY_20041208.2133"): continue
         if debug:
             print "## Processing ", filename
             print "## Loading done", len(sentences_in_doc), len(eventArrOneDoc)
