@@ -1,4 +1,5 @@
 
+from collections import Counter
 import numpy as np
 import random
 
@@ -47,6 +48,22 @@ def loadTag(filename):
     vocab["NULL"] = 0
     return vocab
 
+def loadPretrain2(model_path):
+    content = open(model_path, "r").readlines()
+    wordNum, dim = content[0].strip().split()
+    wordNum = int(wordNum)
+    dim = int(dim)
+
+    pretrain_embedding = []
+    pretrain_vocab = {} # word: word_id
+    for word_id, line in enumerate(content[1:]):
+        word_item = line.strip().split()
+        word_text = word_item[0]
+        embed_word = [float(item) for item in word_item[1:]]
+        pretrain_embedding.append(embed_word)
+        pretrain_vocab[word_text] = word_id
+    return np.matrix(pretrain_embedding), pretrain_vocab
+
 def loadPretrain(model_path):
     content = open(model_path, "r").readlines()
     pretrain_embedding = []
@@ -58,6 +75,21 @@ def loadPretrain(model_path):
     pretrain_embedding.append([random.uniform(-1, 1) for _ in range(pretrain_embed_dim)])
     pretrain_embedding.append([random.uniform(-1, 1) for _ in range(pretrain_embed_dim)])
     return np.matrix(pretrain_embedding)
+
+# load train dev test
+def loadTrainData2(filename):
+    content = open(filename, "r").readlines()
+    content = [line.strip().lower() for line in content if len(line.strip())>1]
+    data = [(line.split("\t")[0].strip().split(), line.split("\t")[1].strip().split()) for line in content]
+
+    data = [item for item in data if len(item[0]) > 3]
+    if len(data) != len(content): print "-- length new ori", len(data), len(content)
+    for sent_id, sent_item in enumerate(data):
+        if len(sent_item[0]) < 1 or len(sent_item[1]) < 1 or len(sent_item[0]) != len(sent_item[1]):
+            print "## Error!! loading data:", sent_id, len(sent_item[0]), len(sent_item[1]), content[sent_id]
+            print sent_item
+            break
+    return data
 
 # load train dev test
 def loadTrainData(filename):
@@ -73,8 +105,10 @@ def loadTrainData(filename):
             print sent_item
     return data
 
-def output_dynet_format(data, vocab, filename):
-    sep = " "
+def output_dynet_format(data, vocab, tags_data, filename):
+    id2tag = dict([(tag_index, tag) for tag, tag_index in tags_data.items()])
+    id2tag[0] = "O"
+    sep = "\t"
     id2word = dict([(word_index, word) for word, word_index in vocab.items()])
     outFile = file(filename, "w")
     tag_appear = []
@@ -82,7 +116,9 @@ def output_dynet_format(data, vocab, filename):
         tag_appear.extend(tags)
         words = [id2word.get(word_index) for word_index in sent]
         for word, tag in zip(words, tags):
-            output_str = word + sep + "NN" + sep + "NN" + sep + str(tag) + sep + "1"
+            #output_str = word + sep + "NN" + sep + "NN" + sep + str(tag) + sep + "1"
+            tag_text = id2tag[tag]
+            output_str = word + sep + tag_text
             outFile.write(output_str + "\n")
         outFile.write("\n")
     tag_counter = Counter(tag_appear)

@@ -31,8 +31,9 @@ class LSTMTrigger(nn.Module):
         self.lstm_layer = num_layers
 
 # conv layer
-        self.cnn_flag = True
-        self.in_channels = embedding_dim
+        self.cnn_flag = False
+        self.position_dim = 5
+        self.in_channels = embedding_dim + self.position_dim
         self.out_channels = conv_filter_num
         self.kernal_size1 = conv_width1
         self.kernal_size2 = conv_width2
