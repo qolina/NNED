@@ -31,8 +31,10 @@ class LSTMTrigger(nn.Module):
         self.lstm_layer = num_layers
 
 # conv layer
-        self.cnn_flag = False
+        self.cnn_flag = True
+        self.position_size = 250
         self.position_dim = 5
+        self.position_embedding = nn.Embedding(self.position_size, self.position_dim)
         self.in_channels = embedding_dim + self.position_dim
         self.out_channels = conv_filter_num
         self.kernal_size1 = conv_width1
@@ -56,6 +58,7 @@ class LSTMTrigger(nn.Module):
         if gpu:
             self.drop = self.drop.cuda()
             self.word_embeddings = self.word_embeddings.cuda()
+            self.position_embedding = self.position_embedding.cuda()
             self.lstm = self.lstm.cuda()
             self.conv1 = self.conv1.cuda()
             self.conv2 = self.conv2.cuda()
@@ -81,7 +84,7 @@ class LSTMTrigger(nn.Module):
 
     # from: Variable of sent_length*embedding_dim
     # to: Variable of batch_size*embedding_dim*sent_length
-    def lstmformat2cnn(self, inputs, gpu):
+    def lstmformat2cnn(self, inputs):
         sent_length = inputs.size()[0]
         batch_size = 1
         inputs = inputs.view(sent_length, batch_size, -1) # sent_length*batch_size*embedding_dim
@@ -90,38 +93,81 @@ class LSTMTrigger(nn.Module):
 
     # from: batch_size*out_channels*1
     # to: 1*out_channels
-    def cnnformat2lstm(self, outputs, gpu):
+    def cnnformat2lstm(self, outputs):
         outputs = outputs.transpose(1, 2).transpose(0, 1) # 1*batch_size*out_channels
         outputs = outputs.view(1, self.out_channels)
         return outputs
 
+    def prep_position(self, sentence):
+        positions_arr = [[abs(j) for j in range(-i, len(sentence)-i)] for i in range(len(sentence))]
+        positions = [autograd.Variable(torch.LongTensor(position), requires_grad=False) for position in positions_arr]
+        return positions
+        
     def forward(self, sentence, gpu):
+        debug = True
         self.hidden = self.init_hidden(gpu)
 
         embeds = self.word_embeddings(sentence)
+        positions = self.prep_position(sentence)
         #print embeds
 
         if self.random_embed:
-            sent_tensor = sentence.data
-            embeds = embeds.data
-            if gpu: sent_tensor = sent_tensor.cpu()
-            if gpu: embeds = embeds.cpu()
-            pretrain_embeds = torch.index_select(self.pretrain_word_embeddings, 0, sent_tensor)
-            embeds = torch.cat((pretrain_embeds, embeds.double()), 1)
-            embeds = Variable(embeds.float())
-            if gpu: embeds = embeds.cuda()
-        #print embeds
+            pretrain_embeds = self.pretrain_word_embeddings(sentence)
+            embeds = torch.cat((pretrain_embeds, embeds), 1)
+            #print embeds
+
 # conv forward
         if self.cnn_flag:
-            inputs = self.lstmformat2cnn(embeds, gpu)
+            c1_embed = None
+            c2_embed = None
             self.maxp1 = nn.MaxPool1d(len(sentence)-self.kernal_size1+1)
             self.maxp2 = nn.MaxPool1d(len(sentence)-self.kernal_size2+1)
-            c1 = self.conv1(inputs) # batch_size*out_channels*(sent_length-conv_width+1)
-            p1 = self.maxp1(c1) # batch_size * out_channels * 1
-            c2 = self.conv2(inputs)
-            p2 = self.maxp2(c2)
-            c1_embed = self.cnnformat2lstm(p1, gpu)
-            c2_embed = self.cnnformat2lstm(p2, gpu)
+
+            for word_id, position in enumerate(positions):
+                if gpu: position = position.cuda()
+                pos_embeds = self.position_embedding(position)
+                comb_embeds = torch.cat((embeds, pos_embeds), 1)
+                inputs = self.lstmformat2cnn(comb_embeds)
+                if debug:
+                    print "## maxp1:", type(self.maxp1)
+                    print "## maxp2:", type(self.maxp2)
+                    print "## input:", type(inputs.data), inputs.data.size()
+                    print inputs
+
+                c1 = self.conv1(inputs) # batch_size*out_channels*(sent_length-conv_width+1)
+                if debug:
+                    print "## c1:", type(c1.data), c1.data.size()
+                p1 = self.maxp1(c1) # batch_size * out_channels * 1
+                if debug:
+                    print "## p1:", type(p1.data), p1.data.size()
+
+                c2 = self.conv2(inputs)
+                if debug:
+                    print "## c2:", type(c2.data), c2.data.size()
+                p2 = self.maxp2(c2)
+                if debug:
+                    print "## p2:", type(p2.data), p2.data.size()
+
+                c1_embed_temp = self.cnnformat2lstm(p1)
+                c2_embed_temp = self.cnnformat2lstm(p2)
+                if debug:
+                    print "## c1_embed_temp:", type(c1_embed_temp.data), c1_embed_temp.data.size()
+                    print "## c2_embed_temp:", type(c2_embed_temp.data), c2_embed_temp.data.size()
+                if word_id == 0:
+                    c1_embed = c1_embed_temp
+                    c2_embed = c2_embed_temp
+                else:
+                    c1_embed = torch.cat((c1_embed, c1_embed_temp), 0)
+                    c2_embed = torch.cat((c2_embed, c2_embed_temp), 0)
+                if debug:
+                    print "## c1_embed:", type(c1_embed.data), c1_embed.data.size()
+                    print c1_embed
+                    print "## c2_embed:", type(c2_embed.data), c2_embed.data.size()
+                    print c2_embed
+                #c1_embed.append(c1_embed_temp)
+                #c2_embed.append(c2_embed_temp)
+            #c1_embed = torch.cat(c1_embed, 0)
+            #c2_embed = torch.cat(c2_embed, 0)
 
         embeds = self.drop(embeds)
         lstm_out, self.hidden = self.lstm(
@@ -129,15 +175,9 @@ class LSTMTrigger(nn.Module):
         lstm_out = lstm_out.view(len(sentence), -1)
         hidden_in = lstm_out
         if self.cnn_flag:
-            #c1_embed.data = c1_embed.data.expand(len(sentence), c1_embed.size()[1])
-            #c2_embed.data = c2_embed.data.expand(len(sentence), c2_embed.size()[1])
-            #hidden_in = torch.cat((lstm_out.data, c1_embed.data, c2_embed.data), 1)
-            c1_embed= c1_embed.expand(len(sentence), c1_embed.size()[1])
-            c2_embed= c2_embed.expand(len(sentence), c2_embed.size()[1])
+            #c1_embed= c1_embed.expand(len(sentence), c1_embed.size()[1])
+            #c2_embed= c2_embed.expand(len(sentence), c2_embed.size()[1])
             hidden_in = torch.cat((lstm_out, c1_embed, c2_embed), 1)
-            #hidden_in = Variable(hidden_in)
-            #print hidden_in
-            #print type(hidden_in)
 
         hidden_snd = self.fst_hidden(hidden_in)
         hidden_snd = F.relu(hidden_snd)

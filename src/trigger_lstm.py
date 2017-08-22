@@ -176,23 +176,28 @@ def parseArgs(args):
 
 def main():
 
-    training_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data()
-    model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
-    if False:
-        dev_sent_ids = random.sample(range(len(training_data)), 500)
-        dev_data = [training_data[i] for i in dev_sent_ids]
-        training_data = [training_data[i] for i in range(len(training_data)) if i not in dev_sent_ids]
-    else:
-        training_data = training_data[:-500]
-        dev_data = training_data[-500:]
+    #training_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data()
+    #model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
+    #if False:
+    #    dev_sent_ids = random.sample(range(len(training_data)), 500)
+    #    dev_data = [training_data[i] for i in dev_sent_ids]
+    #    training_data = [training_data[i] for i in range(len(training_data)) if i not in dev_sent_ids]
+    #else:
+    #    training_data = training_data[:-500]
+    #    dev_data = training_data[-500:]
 
-    #training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data2()
+    training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data2()
 
-    #vocab_size = len(vocab)
-    #pretrain_vocab_size, pretrain_embed_dim = pretrain_embedding.shape
-    #tagset_size = len(tags_data)
+    vocab_size = len(vocab)
+    pretrain_vocab_size, pretrain_embed_dim = pretrain_embedding.shape
+    tagset_size = len(tags_data)
 
-    if 1:
+    if 0:
+        all_data = training_data+dev_data+test_data
+        sent_lens = [len(item[0]) for item in all_data]
+        print "## Statistic sent length:", max(sent_lens), min(sent_lens)
+        sys.exit(0)
+    if 0:
         output_normal_pretrain(pretrain_embedding, vocab, "../ni_data/f.ace.pretrain300.vectors")
         output_dynet_format(training_data, vocab, tags_data, "../ni_data/f.ace_trigger.train")
         output_dynet_format(dev_data, vocab, tags_data, "../ni_data/f.ace_trigger.dev")
