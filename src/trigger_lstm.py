@@ -44,7 +44,7 @@ def eval_model(data, model, loss_function, data_flag, gpu):
     loss_all = 0
     gold_results = []
     pred_results = []
-    for sent, tags, gold_triggers in data:
+    for sent, tags, gold_triggers in data[:100]:
 
         sentence_in = arr2tensor(sent)
         targets = arr2tensor(tags)
@@ -176,17 +176,18 @@ def parseArgs(args):
 
 def main():
 
-    #training_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data()
-    #model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
-    #if False:
-    #    dev_sent_ids = random.sample(range(len(training_data)), 500)
-    #    dev_data = [training_data[i] for i in dev_sent_ids]
-    #    training_data = [training_data[i] for i in range(len(training_data)) if i not in dev_sent_ids]
-    #else:
-    #    training_data = training_data[:-500]
-    #    dev_data = training_data[-500:]
-
-    training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data2()
+    if 1:
+        training_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data()
+        model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
+        if False:
+            dev_sent_ids = random.sample(range(len(training_data)), 500)
+            dev_data = [training_data[i] for i in dev_sent_ids]
+            training_data = [training_data[i] for i in range(len(training_data)) if i not in dev_sent_ids]
+        else:
+            training_data = training_data[:-500]
+            dev_data = training_data[-500:]
+    else:
+        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data2()
 
     vocab_size = len(vocab)
     pretrain_vocab_size, pretrain_embed_dim = pretrain_embedding.shape
@@ -216,14 +217,14 @@ def main():
     bilstm = True
     num_layers = 1
     iteration_num = 200
-    Hidden_dim = 300
+    Hidden_dim = 100
     learning_rate = 0.05
     Embedding_dim = pretrain_embed_dim
 
     conv_width1 = 2
     conv_width2 = 3
-    conv_filter_num = 300
-    hidden_dim_snd = 300
+    conv_filter_num = 100
+    hidden_dim_snd = 100
     para_arr = [vocab_size, tagset_size, Embedding_dim, Hidden_dim]
     para_arr.extend([dropout, bilstm, num_layers, gpu, iteration_num, learning_rate])
     para_arr.extend([len(training_data), len(dev_data), len(test_data)])
@@ -235,18 +236,22 @@ def main():
     #sys.exit(0)
 
 # init model
-    #model = LSTMTrigger(pretrain_embedding, pretrain_embed_dim, Hidden_dim, vocab_size, tagset_size, dropout, bilstm, num_layers, random_dim, gpu, conv_width1, conv_width2, conv_filter_num, hidden_dim_snd)
-    model = LSTMTrigger(None, pretrain_embed_dim, Hidden_dim, vocab_size, tagset_size, dropout, bilstm, num_layers, random_dim, gpu, conv_width1, conv_width2, conv_filter_num, hidden_dim_snd)
+    model = LSTMTrigger(pretrain_embedding, pretrain_embed_dim, Hidden_dim, vocab_size, tagset_size, dropout, bilstm, num_layers, random_dim, gpu, conv_width1, conv_width2, conv_filter_num, hidden_dim_snd)
+    # do not use pretrain embedding
+    #model = LSTMTrigger(None, pretrain_embed_dim, Hidden_dim, vocab_size, tagset_size, dropout, bilstm, num_layers, random_dim, gpu, conv_width1, conv_width2, conv_filter_num, hidden_dim_snd)
+
     #loss_function = nn.NLLLoss()
     loss_function = nn.CrossEntropyLoss()
-    parameters = filter(lambda a:a.requires_grad, model.parameters())
-    optimizer = optim.SGD(parameters, lr=learning_rate)
+
+    #parameters = filter(lambda a:a.requires_grad, model.parameters())
+    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
     #optimizer = optim.Adadelta(parameters, lr=learning_rate)
 
 # training
     best_f1 = -1.0
     for epoch in range(iteration_num):
-        for sent, tags, gold_triggers in training_data:
+        training_id = 0
+        for sent, tags, gold_triggers in training_data[:100]:
             iden_tags = [1 if tag != 0 else tag for tag in tags]
 
             model.zero_grad()
@@ -261,7 +266,10 @@ def main():
                 targets = targets.cuda()
                 iden_targets = iden_targets.cuda()
 
-            tag_space, tag_scores, tag_space_iden = model(sentence_in, gpu)
+            if training_id < 1:
+                tag_space, tag_scores, tag_space_iden = model(sentence_in, gpu, debug=True)
+            else:
+                tag_space, tag_scores, tag_space_iden = model(sentence_in, gpu)
 
             #loss = loss_function(tag_scores, targets)
             loss = loss_function(tag_space, targets) + loss_function(tag_space_iden, iden_targets)
@@ -269,6 +277,7 @@ def main():
             #loss += loss_iden
             loss.backward()
             optimizer.step()
+            training_id += 1
 
         loss_train, prf_train, prf_train_iden = eval_model(training_data, model, loss_function, "train", gpu)
         print "## train results on epoch:", epoch, Tab, loss_train, time.asctime(), Tab,
