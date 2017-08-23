@@ -22,13 +22,12 @@ class LSTMTrigger(nn.Module):
             embedding_dim += random_dim
         else:
             self.word_embeddings = nn.Embedding(vocab_size, pretrain_embed_dim)
-            #print "## word embedding init", self.word_embeddings.weight.data[:5, :5]
+            print "## word embedding init", self.word_embeddings.weight.requires_grad, self.word_embeddings.weight.data[:5, :5]
             if pretrain_embedding is not None:
                 self.word_embeddings.weight.data.copy_(torch.from_numpy(pretrain_embedding))
             #print "## word embedding upd from pretrain", self.word_embeddings.weight.data[:5, :5]
             #print "## pretrain embedding", pretrain_embedding[:5, :5]
 
-        self.word_embeddings.weight.requires_grad = True
         self.drop = nn.Dropout(dropout)
         self.bilstm_flag = bilstm
         self.lstm_layer = num_layers
@@ -37,7 +36,7 @@ class LSTMTrigger(nn.Module):
         self.cnn_flag = False
         self.position_size = 250
         self.position_dim = 5
-        self.position_embedding = nn.Embedding(self.position_size, self.position_dim)
+        self.position_embeddings = nn.Embedding(self.position_size, self.position_dim)
         self.in_channels = embedding_dim + self.position_dim
         self.out_channels = conv_filter_num
         self.kernal_size1 = conv_width1
@@ -61,7 +60,7 @@ class LSTMTrigger(nn.Module):
         if gpu:
             self.drop = self.drop.cuda()
             self.word_embeddings = self.word_embeddings.cuda()
-            self.position_embedding = self.position_embedding.cuda()
+            self.position_embeddings = self.position_embeddings.cuda()
             self.lstm = self.lstm.cuda()
             self.conv1 = self.conv1.cuda()
             self.conv2 = self.conv2.cuda()
@@ -114,10 +113,17 @@ class LSTMTrigger(nn.Module):
         if debug:
             print "## word embedding:", type(self.word_embeddings.weight.data), self.word_embeddings.weight.data.size()
             print self.word_embeddings.weight.data[:5, :5]
-            print "## position embedding:", type(self.position_embedding.weight.data), self.position_embedding.weight.data.size()
-            print self.position_embedding.weight.data[:5]
-            print "## embeds", embeds.data[:10]
+            print type(self.word_embeddings.weight)
+            print "## position embedding:", self.position_embeddings.weight.requires_grad, type(self.position_embeddings.weight), type(self.position_embeddings.weight.data), self.position_embeddings.weight.data.size()
+            print self.position_embeddings.weight.data[:5]
+            print "## embeds", embeds.requires_grad, embeds.data[:10]
 
+        #if self.word_embeddings.weight.grad is not None:
+        #    print "## word embedding grad:", self.word_embeddings.weight.grad#[:5, :5]
+        #if self.position_embeddings.weight.grad is not None:
+        #    print "## position embedding grad:", self.position_embeddings.weight.grad[:5]
+        #if embeds.grad is not None:
+        #    print "## sent word embedding grad:", embeds.grad[:5, :5]
         if self.random_embed:
             pretrain_embeds = self.pretrain_word_embeddings(sentence)
             embeds = torch.cat((pretrain_embeds, embeds), 1)
@@ -135,7 +141,7 @@ class LSTMTrigger(nn.Module):
                     print "## -------------- word_id", word_id
                     print position.data.view(1, -1)
                 if gpu: position = position.cuda()
-                pos_embeds = self.position_embedding(position)
+                pos_embeds = self.position_embeddings(position)
                 comb_embeds = torch.cat((embeds, pos_embeds), 1)
                 inputs = self.lstmformat2cnn(comb_embeds)
                 if debug and word_id == 0:

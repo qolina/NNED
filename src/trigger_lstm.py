@@ -44,7 +44,7 @@ def eval_model(data, model, loss_function, data_flag, gpu):
     loss_all = 0
     gold_results = []
     pred_results = []
-    for sent, tags, gold_triggers in data[:100]:
+    for sent, tags, gold_triggers in data[:]:
 
         sentence_in = arr2tensor(sent)
         targets = arr2tensor(tags)
@@ -180,12 +180,10 @@ def main():
         training_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data()
         model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
         if False:
-            dev_sent_ids = random.sample(range(len(training_data)), 500)
-            dev_data = [training_data[i] for i in dev_sent_ids]
-            training_data = [training_data[i] for i in range(len(training_data)) if i not in dev_sent_ids]
-        else:
             training_data = training_data[:-500]
             dev_data = training_data[-500:]
+        else:
+            dev_data = test_data
     else:
         training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data2()
 
@@ -217,14 +215,14 @@ def main():
     bilstm = True
     num_layers = 1
     iteration_num = 200
-    Hidden_dim = 100
+    Hidden_dim = 300
     learning_rate = 0.05
     Embedding_dim = pretrain_embed_dim
 
     conv_width1 = 2
     conv_width2 = 3
-    conv_filter_num = 100
-    hidden_dim_snd = 100
+    conv_filter_num = 300
+    hidden_dim_snd = 300
     para_arr = [vocab_size, tagset_size, Embedding_dim, Hidden_dim]
     para_arr.extend([dropout, bilstm, num_layers, gpu, iteration_num, learning_rate])
     para_arr.extend([len(training_data), len(dev_data), len(test_data)])
@@ -251,7 +249,9 @@ def main():
     best_f1 = -1.0
     for epoch in range(iteration_num):
         training_id = 0
-        for sent, tags, gold_triggers in training_data[:100]:
+        if model.word_embeddings.weight.grad is not None:
+            print "## word embedding grad:", torch.sum(model.word_embeddings.weight.grad), model.word_embeddings.weight.grad#[:5, :5]
+        for sent, tags, gold_triggers in training_data[:]:
             iden_tags = [1 if tag != 0 else tag for tag in tags]
 
             model.zero_grad()
