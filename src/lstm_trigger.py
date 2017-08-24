@@ -33,8 +33,8 @@ class LSTMTrigger(nn.Module):
         self.lstm_layer = num_layers
 
 # conv layer
-        self.cnn_flag = False
-        self.position_size = 250
+        self.cnn_flag = True
+        self.position_size = 300
         self.position_dim = 5
         self.position_embeddings = nn.Embedding(self.position_size, self.position_dim)
         self.in_channels = embedding_dim + self.position_dim

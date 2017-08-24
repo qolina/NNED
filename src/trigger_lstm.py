@@ -70,7 +70,7 @@ def eval_model(data, model, loss_function, data_flag, gpu):
         #loss = loss_function(tag_scores, targets)
         loss = loss_function(tag_space, targets)
         loss_all += loss.data[0]
-    prf = evalPRF(gold_results, pred_results)
+    prf = evalPRF(gold_results, pred_results, data_flag)
     prf_iden = evalPRF_iden(gold_results, pred_results)
     return loss_all, prf, prf_iden
 
@@ -179,7 +179,7 @@ def main():
     if 1:
         training_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data()
         model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
-        if False:
+        if True:
             training_data = training_data[:-500]
             dev_data = training_data[-500:]
         else:
@@ -250,8 +250,9 @@ def main():
     for epoch in range(iteration_num):
         training_id = 0
         if model.word_embeddings.weight.grad is not None:
-            print "## word embedding grad:", torch.sum(model.word_embeddings.weight.grad), model.word_embeddings.weight.grad#[:5, :5]
-        for sent, tags, gold_triggers in training_data[:]:
+            print "## word embedding grad:", torch.sum(model.word_embeddings.weight.grad), model.word_embeddings.weight.grad[:5, :5]
+        for sent, tags, gold_triggers in training_data:
+            print "## training instance:", training_id
             iden_tags = [1 if tag != 0 else tag for tag in tags]
 
             model.zero_grad()
@@ -300,12 +301,13 @@ def main():
         if epoch >= 50 and epoch % 10 == 0:
             loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test", gpu)
             print "##-- test results on epoch", epoch, Tab, loss_test, time.asctime(), Tab,
-            print "## Iden result:",
             outputPRF(prf_test)
+            print "## Iden result:",
+            outputPRF(prf_test_iden)
 
 # final result on test
     model = torch.load(model_path)
-    loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test", gpu)
+    loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test_final", gpu)
     print "## Final results on test", loss_test, time.asctime(), Tab,
     outputPRF(prf_test)
     print "## Iden result:",
