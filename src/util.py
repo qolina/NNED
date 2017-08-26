@@ -231,7 +231,7 @@ def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train"):
         missed_in_doc_gold = [item for item in items_in_doc_gold if item not in common_in_doc]
         wrong_in_doc = [item for item in items_in_doc if item not in common_in_doc]
         if data_flag == "test_final":
-            print "## final results of test doc:", len(common_in_docs)+1, common_in_doc, wrong_in_doc, missed_in_doc_gold
+            print "## final results of test doc:", len(common_in_docs)+1, " common, wrong, missed", common_in_doc, wrong_in_doc, missed_in_doc_gold
 
         common_in_docs.append(len(common_in_doc))
         num_in_docs_gold.append(len(items_in_doc_gold))

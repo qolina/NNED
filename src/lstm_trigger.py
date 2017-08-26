@@ -22,7 +22,7 @@ class LSTMTrigger(nn.Module):
             embedding_dim += random_dim
         else:
             self.word_embeddings = nn.Embedding(vocab_size, pretrain_embed_dim)
-            print "## word embedding init", self.word_embeddings.weight.requires_grad, self.word_embeddings.weight.data[:5, :5]
+            #print "## word embedding init", self.word_embeddings.weight.requires_grad, self.word_embeddings.weight.data[:5, :5]
             if pretrain_embedding is not None:
                 self.word_embeddings.weight.data.copy_(torch.from_numpy(pretrain_embedding))
             #print "## word embedding upd from pretrain", self.word_embeddings.weight.data[:5, :5]
@@ -33,7 +33,7 @@ class LSTMTrigger(nn.Module):
         self.lstm_layer = num_layers
 
 # conv layer
-        self.cnn_flag = True
+        self.cnn_flag = False
         self.position_size = 300
         self.position_dim = 5
         self.position_embeddings = nn.Embedding(self.position_size, self.position_dim)
@@ -75,9 +75,10 @@ class LSTMTrigger(nn.Module):
             dims = (2*self.lstm_layer, 1, self.lstm_hidden_dim)
         else:
             dims = (self.lstm_layer, 1, self.lstm_hidden_dim)
-        init_value = np.random.uniform(-0.01, 0.01, dims)
-        h0 = autograd.Variable(torch.Tensor(init_value))
-        c0 = autograd.Variable(torch.Tensor(init_value))
+        #init_value = torch.Tensor(np.random.uniform(-0.01, 0.01, dims))
+        init_value = torch.zeros(dims)
+        h0 = autograd.Variable(init_value)
+        c0 = autograd.Variable(init_value)
 
         if gpu:
             h0 = h0.cuda()
@@ -106,7 +107,8 @@ class LSTMTrigger(nn.Module):
         return positions
         
     def forward(self, sentence, gpu, debug=False):
-        self.hidden = self.init_hidden(gpu)
+        # already done init_hidden in training each instance
+        #self.hidden = self.init_hidden(gpu)
 
         embeds = self.word_embeddings(sentence)
         positions = self.prep_position(sentence)

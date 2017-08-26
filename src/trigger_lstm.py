@@ -59,8 +59,13 @@ def eval_model(data, model, loss_function, data_flag, gpu):
         if gpu: tag_outputs = tag_outputs.cpu()
         #print tag_outputs.numpy().tolist()
         sys_triggers = get_trigger(tag_outputs.view(len(tags)).numpy().tolist())
-        gold_results.append(gold_triggers)
-        pred_results.append(sys_triggers)
+
+        if 1:
+            gold_results.append(gold_triggers)
+            pred_results.append(sys_triggers)
+        else:
+            gold_results.append(tags)
+            pred_results.append(tag_outputs.numpy().tolist())
 
         if debug and data_flag == "train":
             if len(gold_results) in range(10, 13):
@@ -249,10 +254,11 @@ def main():
     best_f1 = -1.0
     for epoch in range(iteration_num):
         training_id = 0
-        if model.word_embeddings.weight.grad is not None:
-            print "## word embedding grad:", torch.sum(model.word_embeddings.weight.grad), model.word_embeddings.weight.grad[:5, :5]
+        #if model.word_embeddings.weight.grad is not None:
+        #    print "## word embedding grad:", torch.sum(model.word_embeddings.weight.grad), model.word_embeddings.weight.grad[:5, :5]
         for sent, tags, gold_triggers in training_data:
-            print "## training instance:", training_id
+            if training_id == 0:
+                print "## training instance:", training_id
             iden_tags = [1 if tag != 0 else tag for tag in tags]
 
             model.zero_grad()
@@ -298,8 +304,8 @@ def main():
         print "## Iden result:",
         outputPRF(prf_dev_iden)
 # result on test
-        if epoch >= 50 and epoch % 10 == 0:
-            loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test", gpu)
+        if epoch >= 10 and epoch % 10 == 0:
+            loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test_final", gpu)
             print "##-- test results on epoch", epoch, Tab, loss_test, time.asctime(), Tab,
             outputPRF(prf_test)
             print "## Iden result:",
