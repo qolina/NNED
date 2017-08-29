@@ -254,9 +254,9 @@ def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train"):
     if data_flag == "test_final": debug = True
     if debug:
         print "-- common, num_gold, num:", common, num_gold, num
-        print "-- common_in_docs", common_in_docs
-        print "-- num_in_docs_gold", num_in_docs_gold
-        print "-- num_in_docs", num_in_docs
+        #print "-- common_in_docs", common_in_docs
+        #print "-- num_in_docs_gold", num_in_docs_gold
+        #print "-- num_in_docs", num_in_docs
 
     pre, rec, f1 = calPRF(common, num, num_gold)
     return pre, rec, f1

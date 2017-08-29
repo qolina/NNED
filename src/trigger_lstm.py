@@ -184,7 +184,7 @@ def main():
     if 1:
         training_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data()
         model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
-        if True:
+        if 0:
             random.shuffle(training_data, lambda: 0.3) # shuffle data before get dev
             training_data = training_data[:-500]
             dev_data = training_data[-500:]
@@ -306,6 +306,8 @@ def main():
         outputPRF(prf_dev_iden)
 # result on test
         if epoch >= 10 and epoch % 10 == 0:
+            if epoch % 100 == 0:
+                model = torch.load(model_path)
             loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test_final", gpu)
             print "##-- test results on epoch", epoch, Tab, loss_test, time.asctime(), Tab,
             outputPRF(prf_test)
