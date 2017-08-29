@@ -202,7 +202,8 @@ def evalPRF_iden(items_in_docs_gold, items_in_docs):
     num_in_docs_gold = []
     num_in_docs = []
     for items_in_doc, items_in_doc_gold in zip(items_in_docs_gold, items_in_docs):
-        common_in_doc = [1 for item_gold, item in zip(items_in_doc_gold, items_in_doc) if item_gold[0] == item[0]]
+        match_result_in_doc = [eval_sysResult(item, items_in_doc_gold, "iden") for item in items_in_doc]
+        common_in_doc = [item for item, match_result in zip(items_in_doc, match_result_in_doc) if match_result is not None]
 
         common_in_docs.append(len(common_in_doc))
         num_in_docs_gold.append(len(items_in_doc_gold))
@@ -221,13 +222,22 @@ def evalPRF_iden(items_in_docs_gold, items_in_docs):
     pre, rec, f1 = calPRF(common, num, num_gold)
     return pre, rec, f1
 
+def eval_sysResult(sys_out, gold_outs, eval_flag="class"):
+    if eval_flag == "iden":
+        matched = [gold_out for gold_out in gold_outs if sys_out[0] == gold_out[0]]
+    else:
+        matched = [gold_out for gold_out in gold_outs if sys_out == gold_out]
+    if len(matched) == 0: return None
+    return matched[0]
+
 def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train"):
     debug = False
     common_in_docs = []
     num_in_docs_gold = []
     num_in_docs = []
     for items_in_doc, items_in_doc_gold in zip(items_in_docs_gold, items_in_docs):
-        common_in_doc = [item for item_gold, item in zip(items_in_doc_gold, items_in_doc) if item_gold == item]
+        match_result_in_doc = [eval_sysResult(item, items_in_doc_gold) for item in items_in_doc]
+        common_in_doc = [item for item, match_result in zip(items_in_doc, match_result_in_doc) if match_result is not None]
         missed_in_doc_gold = [item for item in items_in_doc_gold if item not in common_in_doc]
         wrong_in_doc = [item for item in items_in_doc if item not in common_in_doc]
         if data_flag == "test_final":
