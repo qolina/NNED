@@ -185,6 +185,7 @@ def main():
         training_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data()
         model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
         if True:
+            random.shuffle(training_data, lambda: 0.3) # shuffle data before get dev
             training_data = training_data[:-500]
             dev_data = training_data[-500:]
         else:
@@ -221,7 +222,7 @@ def main():
     num_layers = 1
     iteration_num = 200
     Hidden_dim = 300
-    learning_rate = 0.05
+    learning_rate = 0.03
     Embedding_dim = pretrain_embed_dim
 
     conv_width1 = 2
