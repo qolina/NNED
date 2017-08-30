@@ -165,7 +165,7 @@ def main():
         sentences_in_doc, content = parseSGML(dataDir+filename)
         line_num += len(sentences_in_doc)
         eventArrOneDoc = extractEvents(dataDir+filename)
-        #if len(eventArrOneDoc) == 0: continue
+        if len(eventArrOneDoc) == 0: continue
         outfilename = dataDir + filename[:-3]+"ee"
         outfile = open(outfilename, "w")
         cPickle.dump(content, outfile)

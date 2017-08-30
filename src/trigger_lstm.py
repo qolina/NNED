@@ -25,6 +25,7 @@ from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import torch.utils.data as torch_data
 
 from lstm_trigger import LSTMTrigger
 torch.manual_seed(1)
@@ -158,27 +159,6 @@ def init_embedding(dim1, dim2):
     init_embedding = np.random.uniform(-0.01, 0.01, (dim, dim))
     return np.matrix(init_embedding)
 
-##############
-def getArg(args, flag):
-    arg = None
-    if flag in args:
-        arg = args[args.index(flag)+1]
-    return arg
-
-# arguments received from arguments
-def parseArgs(args):
-    arg1 = getArg(args, "-train")
-    arg2 = getArg(args, "-dev")
-    arg3 = getArg(args, "-test")
-    arg4 = getArg(args, "-embed")
-
-    arg5 = getArg(args, "-tag")
-    arg6 = getArg(args, "-vocab")
-
-    arg7 = getArg(args, "-model")
-    return [arg1, arg2, arg3, arg4, arg5, arg6, arg7]
-
-
 def train(para_arr, data_sets, debug=False):
 
     vocab_size, tagset_size, embedding_dim, hidden_dim = para_arr[:4]
@@ -189,9 +169,6 @@ def train(para_arr, data_sets, debug=False):
 
     training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding = data_sets
 
-    training_data = [(item[0], item[1], get_trigger(item[1])) for item in training_data]
-    dev_data = [(item[0], item[1], get_trigger(item[1])) for item in dev_data]
-    test_data = [(item[0], item[1], get_trigger(item[1])) for item in test_data]
     random_dim = 10
 
 # init model
@@ -266,9 +243,11 @@ def train(para_arr, data_sets, debug=False):
         outputPRF(prf_dev_iden)
 # result on test
         if epoch >= 10 and epoch % 10 == 0:
-            #if epoch % 100 == 0:
-            #    model = torch.load(model_path)
-            loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test_final", gpu)
+            if epoch % 100 == 0:
+                model_test = torch.load(model_path)
+                loss_test, prf_test, prf_test_iden = eval_model(test_data, model_test, loss_function, "test_final", gpu)
+            else:
+                loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test", gpu)
             print "##-- test results on epoch", epoch, Tab, loss_test, time.asctime(), Tab,
             outputPRF(prf_test)
             print "## Iden result:",
@@ -282,13 +261,36 @@ def train(para_arr, data_sets, debug=False):
     print "## Iden result:",
     outputPRF(prf_test_iden)
 
+##############
+def getArg(args, flag):
+    arg = None
+    if flag in args:
+        arg = args[args.index(flag)+1]
+    return arg
+
+# arguments received from arguments
+def parseArgs(args):
+    arg1 = getArg(args, "-train")
+    arg2 = getArg(args, "-dev")
+    arg3 = getArg(args, "-test")
+    arg4 = getArg(args, "-embed")
+
+    arg5 = getArg(args, "-tag")
+    arg6 = getArg(args, "-vocab")
+
+    arg7 = getArg(args, "-model")
+
+    arg8 = getArg(args, "-loss")
+    arg9 = getArg(args, "-opt")
+    #arg10 = getArg(args, "-")
+    return [arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9]
 
 if __name__ == "__main__":
     print "Usage: python .py -train trainFile -embed embeddingFile -ace aceArgumentFile -dev devFile -test testFile"
     print sys.argv
 
     #######################
-    ## set parameters
+    ## default parameters
     gpu = torch.cuda.is_available()
     print "gpu available:", gpu
     #gpu = false
@@ -296,11 +298,11 @@ if __name__ == "__main__":
     shuffle_train = True # to select last 500 as dev in feng data
     use_pretrain = True
     loss_flag = "cross-entropy" # or nlloss
-    opti_flag = "sgd"  # or "ada"
+    opti_flag = "ada"  # or "sgd"
     dropout = 0.5
     bilstm = True
     num_layers = 1
-    iteration_num = 200
+    iteration_num = 500
     hidden_dim = 100
     learning_rate = 0.03
     embedding_dim = 100
@@ -315,12 +317,14 @@ if __name__ == "__main__":
     #######################
     ## load datasets
     args_arr = parseArgs(sys.argv)
-    train_filename, dev_filename, test_filename, pretrain_embedding_filename, tag_filename, vocab_filename, model_path = args_arr
+    train_filename, dev_filename, test_filename, pretrain_embedding_filename, tag_filename, vocab_filename, model_path, loss_arg, opti_arg = args_arr
+    if loss_arg is not None: loss_flag = loss_arg
+    if opti_arg is not None: opti_flag = opti_arg
 
     if "-dev" in sys.argv:
-        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data2(args_arr)
+        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data2(args_arr[:-2])
     else:
-        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data(args_arr)
+        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data(args_arr[:-2])
         if test_as_dev:
             dev_data = test_data
         else:
@@ -364,6 +368,10 @@ if __name__ == "__main__":
 
     #######################
     # begin to train
+    training_data = [(item[0], item[1], get_trigger(item[1])) for item in training_data]
+    dev_data = [(item[0], item[1], get_trigger(item[1])) for item in dev_data]
+    test_data = [(item[0], item[1], get_trigger(item[1])) for item in test_data]
+
     data_sets = training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding
     train(para_arr, data_sets)
 
