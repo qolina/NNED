@@ -9,10 +9,11 @@ import numpy as np
 torch.manual_seed(1)
 
 class LSTMTrigger(nn.Module):
-    def __init__(self, pretrain_embedding, pretrain_embed_dim, lstm_hidden_dim, vocab_size, tagset_size, dropout, bilstm, num_layers, random_dim, gpu, conv_width1=2, conv_width2=3, conv_filter_num=0, hidden_dim_snd=0):
+    def __init__(self, model_params):
         super(LSTMTrigger, self).__init__()
 
-        embedding_dim = pretrain_embed_dim
+        use_pretrain, use_conv, bilstm, gpu, num_layers, dropout, embedding_dim, lstm_hidden_dim, hidden_dim_snd, conv_width1, conv_width2, conv_filter_num, vocab_size, tagset_size, random_dim, pretrain_embedding = model_params
+
         self.lstm_hidden_dim = lstm_hidden_dim
         self.random_embed = False
         if random_dim >= 50:
@@ -21,10 +22,9 @@ class LSTMTrigger(nn.Module):
             self.random_embed = True
             embedding_dim += random_dim
         else:
-            self.word_embeddings = nn.Embedding(vocab_size, pretrain_embed_dim)
+            self.word_embeddings = nn.Embedding(vocab_size, embedding_dim)
             #print "## word embedding init", self.word_embeddings.weight.requires_grad, self.word_embeddings.weight.data[:5, :5]
-            if pretrain_embedding is not None:
-                self.word_embeddings.weight.data.copy_(torch.from_numpy(pretrain_embedding))
+            self.word_embeddings.weight.data.copy_(torch.from_numpy(pretrain_embedding))
             #print "## word embedding upd from pretrain", self.word_embeddings.weight.data[:5, :5]
             #print "## pretrain embedding", pretrain_embedding[:5, :5]
 
@@ -33,8 +33,7 @@ class LSTMTrigger(nn.Module):
         self.lstm_layer = num_layers
 
 # conv layer
-        self.cnn_flag = False
-        if self.cnn_flag: print "##------ Use CNN: true"
+        self.cnn_flag = use_conv
         self.position_size = 300
         self.position_dim = 5
         self.position_embeddings = nn.Embedding(self.position_size, self.position_dim)
@@ -76,8 +75,8 @@ class LSTMTrigger(nn.Module):
             dims = (2*self.lstm_layer, 1, self.lstm_hidden_dim)
         else:
             dims = (self.lstm_layer, 1, self.lstm_hidden_dim)
-        #init_value = torch.Tensor(np.random.uniform(-0.01, 0.01, dims))
-        init_value = torch.zeros(dims)
+        init_value = torch.Tensor(np.random.uniform(-0.01, 0.01, dims))
+        #init_value = torch.zeros(dims)
         h0 = autograd.Variable(init_value)
         c0 = autograd.Variable(init_value)
 

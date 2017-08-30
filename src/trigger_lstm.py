@@ -79,9 +79,9 @@ def eval_model(data, model, loss_function, data_flag, gpu):
     prf_iden = evalPRF_iden(gold_results, pred_results)
     return loss_all, prf, prf_iden
 
-def load_data2():
+def load_data2(args_arr):
     debug = True
-    train_filename, dev_filename, test_filename, pretrain_embedding_filename, _tag_filename, _vocab_filename, model_path = parseArgs(sys.argv)
+    train_filename, dev_filename, test_filename, pretrain_embedding_filename, _tag_filename, _vocab_filename, model_path = args_arr
 
     pretrain_embedding, pretrain_vocab = loadPretrain2(pretrain_embedding_filename)
     print "## pretrained embedding loaded.", time.asctime(), pretrain_embedding.shape
@@ -124,8 +124,8 @@ def load_data2():
             print triggers
     return training_data, dev_data, test_data, pretrain_vocab, tags_data, pretrain_embedding, model_path
 
-def load_data():
-    train_filename, _dev_filename, test_filename, pretrain_embedding_filename, tag_filename, vocab_filename, model_path = parseArgs(sys.argv)
+def load_data(args_arr):
+    train_filename, _dev_filename, test_filename, pretrain_embedding_filename, tag_filename, vocab_filename, model_path = args_arr
 
 # pretrain embedding: matrix (vocab_size, pretrain_embed_dim)
     pretrain_embedding = loadPretrain(pretrain_embedding_filename)
@@ -152,11 +152,11 @@ def load_data():
     #    check_trigger(tag)
     #for sent, tag in test_data:
     #    check_trigger(tag)
-    return training_data, test_data, vocab, tags_data, pretrain_embedding, model_path
+    return training_data, None, test_data, vocab, tags_data, pretrain_embedding, model_path
 
-def get_random_embedding(vocab_size, random_dim):
-    random_embedding = np.random.uniform(-1, 1, (vocab_size, random_dim))
-    return np.matrix(random_embedding)
+def init_embedding(dim1, dim2):
+    init_embedding = np.random.uniform(-0.01, 0.01, (dim, dim))
+    return np.matrix(init_embedding)
 
 ##############
 def getArg(args, flag):
@@ -179,77 +179,39 @@ def parseArgs(args):
     return [arg1, arg2, arg3, arg4, arg5, arg6, arg7]
 
 
-def main():
+def train(para_arr, data_sets, debug=False):
 
-    if 1:
-        training_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data()
-        model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
-        if 0:
-            random.shuffle(training_data, lambda: 0.3) # shuffle data before get dev
-            training_data = training_data[:-500]
-            dev_data = training_data[-500:]
-        else:
-            dev_data = test_data
-    else:
-        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data2()
+    vocab_size, tagset_size, embedding_dim, hidden_dim = para_arr[:4]
+    dropout, bilstm, num_layers, gpu, iteration_num, learning_rate = para_arr[4:10]
+    training_size, dev_size, test_size = para_arr[10:13]
+    conv_width1, conv_width2, conv_filter_num, hidden_dim_snd = para_arr[13:17]
+    model_path, test_as_dev, shuffle_train, use_conv, use_pretrain, loss_flag, opti_flag = para_arr[17:24]
 
-    vocab_size = len(vocab)
-    pretrain_vocab_size, pretrain_embed_dim = pretrain_embedding.shape
-    tagset_size = len(tags_data)
-
-    if 0:
-        all_data = training_data+dev_data+test_data
-        sent_lens = [len(item[0]) for item in all_data]
-        print "## Statistic sent length:", max(sent_lens), min(sent_lens)
-        sys.exit(0)
-    if 0:
-        output_normal_pretrain(pretrain_embedding, vocab, "../ni_data/f.ace.pretrain300.vectors")
-        output_dynet_format(training_data, vocab, tags_data, "../ni_data/f.ace_trigger.train")
-        output_dynet_format(dev_data, vocab, tags_data, "../ni_data/f.ace_trigger.dev")
-        output_dynet_format(test_data, vocab, tags_data, "../ni_data/f.ace_trigger.test")
-        sys.exit(0)
+    training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding = data_sets
 
     training_data = [(item[0], item[1], get_trigger(item[1])) for item in training_data]
     dev_data = [(item[0], item[1], get_trigger(item[1])) for item in dev_data]
     test_data = [(item[0], item[1], get_trigger(item[1])) for item in test_data]
     random_dim = 10
 
-    gpu = torch.cuda.is_available()
-    print "gpu available:", gpu
-    #gpu = false
-    dropout = 0.5
-    bilstm = True
-    num_layers = 1
-    iteration_num = 200
-    Hidden_dim = 300
-    learning_rate = 0.03
-    Embedding_dim = pretrain_embed_dim
-
-    conv_width1 = 2
-    conv_width2 = 3
-    conv_filter_num = 300
-    hidden_dim_snd = 300
-    para_arr = [vocab_size, tagset_size, Embedding_dim, Hidden_dim]
-    para_arr.extend([dropout, bilstm, num_layers, gpu, iteration_num, learning_rate])
-    para_arr.extend([len(training_data), len(dev_data), len(test_data)])
-    para_arr.extend([conv_width1, conv_width2, conv_filter_num, hidden_dim_snd])
-    param_str = "p"+str(Embedding_dim) + "_hd" + str(Hidden_dim) + "_2hd" + str(hidden_dim_snd) + "_f" + str(conv_filter_num) + "_c" + str(conv_width1) + "_c" + str(conv_width2) + "_lr" + str(learning_rate*100)# + "_" + str() + "_" + str()
-    model_path += param_str
-    para_arr.extend([model_path])
-    outputParameters(para_arr)
-    #sys.exit(0)
-
 # init model
-    model = LSTMTrigger(pretrain_embedding, pretrain_embed_dim, Hidden_dim, vocab_size, tagset_size, dropout, bilstm, num_layers, random_dim, gpu, conv_width1, conv_width2, conv_filter_num, hidden_dim_snd)
-    # do not use pretrain embedding
-    #model = LSTMTrigger(None, pretrain_embed_dim, Hidden_dim, vocab_size, tagset_size, dropout, bilstm, num_layers, random_dim, gpu, conv_width1, conv_width2, conv_filter_num, hidden_dim_snd)
+    if not use_pretrain:
+        pretrain_embedding = init_embedding(vocab_size, embedding_dim)
 
-    #loss_function = nn.NLLLoss()
-    loss_function = nn.CrossEntropyLoss()
+    model_params_to_feed = [use_pretrain, use_conv, bilstm, gpu, num_layers, dropout, embedding_dim, hidden_dim, hidden_dim_snd, conv_width1, conv_width2, conv_filter_num, vocab_size, tagset_size, random_dim, pretrain_embedding]
 
-    #parameters = filter(lambda a:a.requires_grad, model.parameters())
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
-    #optimizer = optim.Adadelta(parameters, lr=learning_rate)
+    model = LSTMTrigger(model_params_to_feed)
+
+    if loss_flag == "cross-entropy":
+        loss_function = nn.CrossEntropyLoss()
+    else:
+        loss_function = nn.NLLLoss()
+
+    parameters = filter(lambda a:a.requires_grad, model.parameters())
+    if opti_flag == "ada":
+        optimizer = optim.Adadelta(parameters, lr=learning_rate)
+    elif opti_flag == "sgd":
+        optimizer = optim.SGD(model.parameters(), lr=learning_rate)
 
 # training
     best_f1 = -1.0
@@ -274,10 +236,8 @@ def main():
                 targets = targets.cuda()
                 iden_targets = iden_targets.cuda()
 
-            if training_id < 1:
-                tag_space, tag_scores, tag_space_iden = model(sentence_in, gpu, debug=True)
-            else:
-                tag_space, tag_scores, tag_space_iden = model(sentence_in, gpu)
+            #if training_id < 1:    debug = True
+            tag_space, tag_scores, tag_space_iden = model(sentence_in, gpu, debug)
 
             #loss = loss_function(tag_scores, targets)
             loss = loss_function(tag_space, targets) + loss_function(tag_space_iden, iden_targets)
@@ -306,8 +266,8 @@ def main():
         outputPRF(prf_dev_iden)
 # result on test
         if epoch >= 10 and epoch % 10 == 0:
-            if epoch % 100 == 0:
-                model = torch.load(model_path)
+            #if epoch % 100 == 0:
+            #    model = torch.load(model_path)
             loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test_final", gpu)
             print "##-- test results on epoch", epoch, Tab, loss_test, time.asctime(), Tab,
             outputPRF(prf_test)
@@ -327,5 +287,83 @@ if __name__ == "__main__":
     print "Usage: python .py -train trainFile -embed embeddingFile -ace aceArgumentFile -dev devFile -test testFile"
     print sys.argv
 
-    main()
+    #######################
+    ## set parameters
+    gpu = torch.cuda.is_available()
+    print "gpu available:", gpu
+    #gpu = false
+    test_as_dev = False
+    shuffle_train = True # to select last 500 as dev in feng data
+    use_pretrain = True
+    loss_flag = "cross-entropy" # or nlloss
+    opti_flag = "sgd"  # or "ada"
+    dropout = 0.5
+    bilstm = True
+    num_layers = 1
+    iteration_num = 200
+    hidden_dim = 100
+    learning_rate = 0.03
+    embedding_dim = 100
+
+    use_conv = False
+    conv_width1 = 2
+    conv_width2 = 3
+    conv_filter_num = 100
+    hidden_dim_snd = 300
+
+
+    #######################
+    ## load datasets
+    args_arr = parseArgs(sys.argv)
+    train_filename, dev_filename, test_filename, pretrain_embedding_filename, tag_filename, vocab_filename, model_path = args_arr
+
+    if "-dev" in sys.argv:
+        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data2(args_arr)
+    else:
+        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data(args_arr)
+        if test_as_dev:
+            dev_data = test_data
+        else:
+            if shuffle_train:
+                random.shuffle(training_data, lambda: 0.3) # shuffle data before get dev
+            training_data = training_data[:-500]
+            dev_data = training_data[-500:]
+    model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
+
+    vocab_size = len(vocab)
+    pretrain_vocab_size, pretrain_embed_dim = pretrain_embedding.shape
+    tagset_size = len(tags_data)
+
+    if 0:
+        all_data = training_data+dev_data+test_data
+        sent_lens = [len(item[0]) for item in all_data]
+        print "## Statistic sent length:", max(sent_lens), min(sent_lens)
+        sys.exit(0)
+    if 0:
+        output_normal_pretrain(pretrain_embedding, vocab, "../ni_data/f.ace.pretrain300.vectors")
+        output_dynet_format(training_data, vocab, tags_data, "../ni_data/f.ace_trigger.train")
+        output_dynet_format(dev_data, vocab, tags_data, "../ni_data/f.ace_trigger.dev")
+        output_dynet_format(test_data, vocab, tags_data, "../ni_data/f.ace_trigger.test")
+        sys.exit(0)
+
+
+    #######################
+    ## store and output all parameters
+    if use_pretrain: embedding_dim = pretrain_embed_dim
+
+    para_arr = [vocab_size, tagset_size, embedding_dim, hidden_dim]
+    para_arr.extend([dropout, bilstm, num_layers, gpu, iteration_num, learning_rate])
+    para_arr.extend([len(training_data), len(dev_data), len(test_data)])
+    para_arr.extend([conv_width1, conv_width2, conv_filter_num, hidden_dim_snd])
+    param_str = "p"+str(embedding_dim) + "_hd" + str(hidden_dim) + "_2hd" + str(hidden_dim_snd)
+    if use_conv: param += "_f" + str(conv_filter_num) + "_c" + str(conv_width1) + "_c" + str(conv_width2)
+    param_str += "_lr" + str(learning_rate*100)# + "_" + str() + "_" + str()
+    model_path += param_str
+    para_arr.extend([model_path, test_as_dev, shuffle_train, use_conv, use_pretrain, loss_flag, opti_flag])
+    outputParameters(para_arr)
+
+    #######################
+    # begin to train
+    data_sets = training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding
+    train(para_arr, data_sets)
 

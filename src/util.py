@@ -10,23 +10,30 @@ def outputParameters(para_arr):
     dropout, bilstm, num_layers, gpu, iteration_num, learning_rate = para_arr[4:10]
     training_size, dev_size, test_size = para_arr[10:13]
     conv_width1, conv_width2, conv_filter_num, hidden_dim_snd = para_arr[13:17]
-    print "----- train size -----", Tab, Tab, training_size
-    print "----- dev size   -----", Tab, Tab, dev_size
-    print "----- test size  -----", Tab, Tab, test_size
-    print "----- vocab size -----", Tab, Tab, vocab_size
-    print "----- tags size  -----", Tab, Tab, tagset_size
-    print "----- embeds dim -----", Tab, Tab, embedding_dim
-    print "----- hidden dim -----", Tab, Tab, hidden_dim
-    print "----- hidd dim 2nd-----", Tab, Tab, hidden_dim_snd
-    print "----- conv1 width -----", Tab, Tab, conv_width1
-    print "----- conv2 width -----", Tab, Tab, conv_width2
-    print "----- #conv filter -----", Tab, Tab, conv_filter_num
-    print "----- layers num -----", Tab, Tab, num_layers
-    print "----- dropout    -----", Tab, Tab, dropout
-    print "----- learn rate -----", Tab, Tab, learning_rate
-    print "----- #iteration -----", Tab, Tab, iteration_num
-    print "----- bilstm     -----", Tab, Tab, bilstm
-    print "----- use gpu    -----", Tab, Tab, gpu
+    model_path, test_as_dev, shuffle_train, use_conv, use_pretrain, loss_flag, opti_flag = para_arr[17:24]
+
+    print "----- train size         -----", Tab, Tab, training_size
+    print "----- dev size           -----", Tab, Tab, dev_size
+    print "----- test size          -----", Tab, Tab, test_size
+    print "----- vocab size         -----", Tab, Tab, vocab_size
+    print "----- tags size          -----", Tab, Tab, tagset_size
+
+    print "----- bilstm             -----", Tab, Tab, bilstm
+    print "----- embeds dim         -----", Tab, Tab, embedding_dim
+    print "----- hidden dim         -----", Tab, Tab, hidden_dim
+    print "----- hidd dim 2nd       -----", Tab, Tab, hidden_dim_snd
+    print "----- layers num         -----", Tab, Tab, num_layers
+    print "----- dropout            -----", Tab, Tab, dropout
+    print "----- learn rate         -----", Tab, Tab, learning_rate
+    print "----- #iteration         -----", Tab, Tab, iteration_num
+    print "----- use gpu            -----", Tab, Tab, gpu
+    print "----- test as dev        -----", Tab, Tab, test_as_dev
+    print "----- shuf train         -----", Tab, Tab, shuffle_train
+    print "----- use conv           -----", Tab, Tab, use_conv
+    if not use_conv: return
+    print "----- conv1 width        -----", Tab, Tab, conv_width1
+    print "----- conv2 width        -----", Tab, Tab, conv_width2
+    print "----- #conv filter       -----", Tab, Tab, conv_filter_num
 
 
 def outputPRF(arr):
