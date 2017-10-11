@@ -15,6 +15,7 @@ from util import loadTrainData2, loadPretrain2
 from util import output_normal_pretrain, output_dynet_format
 from util import check_trigger, check_trigger_test, check_data
 from util import get_trigger, evalPRF, evalPRF_iden
+from args import get_args
 
 import numpy as np
 from nltk.tokenize import sent_tokenize, word_tokenize
@@ -41,7 +42,7 @@ def arr2tensor(arr):
     return tensor
 
 def eval_model(data, model, loss_function, data_flag, gpu):
-    debug = True
+    debug = False
     loss_all = 0
     gold_results = []
     pred_results = []
@@ -49,50 +50,57 @@ def eval_model(data, model, loss_function, data_flag, gpu):
 
         sentence_in = arr2tensor(sent)
         targets = arr2tensor(tags)
+        iden_tags = [1 if tag != 0 else tag for tag in tags]
+        iden_targets = arr2tensor(iden_tags)
 
         if gpu:
             sentence_in = sentence_in.cuda()
             targets = targets.cuda()
+            iden_targets = iden_targets.cuda()
 
-        tag_space, tag_scores, tag_space_iden = model(sentence_in, gpu)
+        tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, gpu)
 
         _, tag_outputs = tag_scores.data.max(1)
         if gpu: tag_outputs = tag_outputs.cpu()
-        #print tag_outputs.numpy().tolist()
+        if debug:
+            if len(gold_results) in range(10, 11):
+                print "-tag scores", tag_scores.data.size(), tag_scores.data[:1,], tag_scores.data[:1,].max(1)
+                print "-tag output", tag_outputs.numpy().tolist()
+
         sys_triggers = get_trigger(tag_outputs.view(len(tags)).numpy().tolist())
 
-        if 1:
-            gold_results.append(gold_triggers)
-            pred_results.append(sys_triggers)
-        else:
-            gold_results.append(tags)
-            pred_results.append(tag_outputs.numpy().tolist())
+        gold_results.append(gold_triggers)
+        pred_results.append(sys_triggers)
 
         if debug and data_flag == "train":
-            if len(gold_results) in range(10, 13):
+            if len(gold_results) in range(10, 11):
+            #if len(gold_results) in range(0, 15):
                 if len(gold_triggers) == 0: continue
                 print "-gold tag", gold_triggers
                 print "-out tag", sys_triggers
-        #loss = loss_function(tag_scores, targets)
-        loss = loss_function(tag_space, targets)
+        if 1:
+            loss = loss_function(tag_scores, targets) + loss_function(tag_scores_iden, iden_targets)
+        else:
+            loss = loss_function(tag_space, targets)# + loss_function(tag_space_iden, iden_targets)
         loss_all += loss.data[0]
+    #print "## gold out", gold_results
+    #print "## sys out", pred_results
     prf = evalPRF(gold_results, pred_results, data_flag)
     prf_iden = evalPRF_iden(gold_results, pred_results)
     return loss_all, prf, prf_iden
 
 def load_data2(args_arr):
     debug = True
-    train_filename, dev_filename, test_filename, pretrain_embedding_filename, _tag_filename, _vocab_filename, model_path = args_arr
 
-    pretrain_embedding, pretrain_vocab = loadPretrain2(pretrain_embedding_filename)
+    pretrain_embedding, pretrain_vocab = loadPretrain2(args.pretrain_embed)
     print "## pretrained embedding loaded.", time.asctime(), pretrain_embedding.shape
 
-    training_data = loadTrainData2(train_filename)
-    print "## train loaded.", train_filename, time.asctime()
-    dev_data = loadTrainData2(dev_filename)
-    print "## dev loaded.", test_filename, time.asctime()
-    test_data = loadTrainData2(test_filename)
-    print "## test loaded.", test_filename, time.asctime()
+    training_data = loadTrainData2(args.train)
+    print "## train loaded.", args.train, time.asctime()
+    dev_data = loadTrainData2(args.dev)
+    print "## dev loaded.", args.dev, time.asctime()
+    test_data = loadTrainData2(args.test)
+    print "## test loaded.", args.test, time.asctime()
     all_data = training_data + dev_data + test_data
     vocab = sorted(list(set([word_text for sent_text, _ in all_data for word_text in sent_text])))
     vocab = dict(zip(vocab, range(len(vocab))))
@@ -123,82 +131,82 @@ def load_data2(args_arr):
             triggers = [(word_idx, id2word[training_data[i][0][word_idx]], tag) for word_idx, tag in enumerate(sent_tags) if tag != 0]
             print "## eg:", training_data[i]
             print triggers
-    return training_data, dev_data, test_data, pretrain_vocab, tags_data, pretrain_embedding, model_path
+    return training_data, dev_data, test_data, pretrain_vocab, tags_data, pretrain_embedding, args.model
 
 def load_data(args_arr):
-    train_filename, _dev_filename, test_filename, pretrain_embedding_filename, tag_filename, vocab_filename, model_path = args_arr
-
 # pretrain embedding: matrix (vocab_size, pretrain_embed_dim)
-    pretrain_embedding = loadPretrain(pretrain_embedding_filename)
+    pretrain_embedding = loadPretrain(args.pretrain_embed)
     print "## pretrained embedding loaded.", time.asctime(), pretrain_embedding.shape
 
 # vocab: word: word_id
-    vocab = loadVocab(vocab_filename)
+    vocab = loadVocab(args.vocab)
     print "## vocab loaded.", time.asctime()
 
 # train test
-    training_data = loadTrainData(train_filename)
-    print "## train loaded.", train_filename, time.asctime()
+    training_data = loadTrainData(args.train)
+    print "## train loaded.", args.train, time.asctime()
     #training_data = check_data(training_data, vocab)
-    test_data = loadTrainData(test_filename)
-    print "## test loaded.", test_filename, time.asctime()
+    test_data = loadTrainData(args.test)
+    print "## test loaded.", args.test, time.asctime()
     #test_data = check_data(test_data, vocab)
     #check_trigger_test(training_data, test_data)
 
 # tags_data: tag_name: tag_id
-    tags_data = loadTag(tag_filename)
+    tags_data = loadTag(args.tag)
     print "## event tags loaded.", time.asctime()
 
     #for sent, tag in training_data:
     #    check_trigger(tag)
     #for sent, tag in test_data:
     #    check_trigger(tag)
-    return training_data, None, test_data, vocab, tags_data, pretrain_embedding, model_path
+    return training_data, None, test_data, vocab, tags_data, pretrain_embedding, args.model
 
 def init_embedding(dim1, dim2):
-    init_embedding = np.random.uniform(-0.01, 0.01, (dim, dim))
+    init_embedding = np.random.uniform(-0.01, 0.01, (dim1, dim2))
     return np.matrix(init_embedding)
 
-def train(para_arr, data_sets, debug=False):
+def train_func(para_arr, args, data_sets, debug=False):
 
-    vocab_size, tagset_size, embedding_dim, hidden_dim = para_arr[:4]
-    dropout, bilstm, num_layers, gpu, iteration_num, learning_rate = para_arr[4:10]
-    training_size, dev_size, test_size = para_arr[10:13]
-    conv_width1, conv_width2, conv_filter_num, hidden_dim_snd = para_arr[13:17]
-    model_path, test_as_dev, shuffle_train, use_conv, use_pretrain, loss_flag, opti_flag = para_arr[17:24]
+    vocab_size, tagset_size, embedding_dim = para_arr[:3]
+    training_size, dev_size, test_size = para_arr[3:6]
+    model_path = para_arr[6]
+    gpu = args.gpu
 
     training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding = data_sets
 
-    random_dim = 10
+    random_dim = -1
 
 # init model
-    if not use_pretrain:
+    if not args.use_pretrain:
         pretrain_embedding = init_embedding(vocab_size, embedding_dim)
 
-    model_params_to_feed = [use_pretrain, use_conv, bilstm, gpu, num_layers, dropout, embedding_dim, hidden_dim, hidden_dim_snd, conv_width1, conv_width2, conv_filter_num, vocab_size, tagset_size, random_dim, pretrain_embedding]
+    model_params_to_feed = [vocab_size, tagset_size, embedding_dim, random_dim, pretrain_embedding]
 
-    model = LSTMTrigger(model_params_to_feed)
+    model = LSTMTrigger(model_params_to_feed, args)
 
-    if loss_flag == "cross-entropy":
+    if args.loss_flag == "cross-entropy":
         loss_function = nn.CrossEntropyLoss()
     else:
         loss_function = nn.NLLLoss()
 
     parameters = filter(lambda a:a.requires_grad, model.parameters())
-    if opti_flag == "ada":
-        optimizer = optim.Adadelta(parameters, lr=learning_rate)
-    elif opti_flag == "sgd":
-        optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+    if args.opti_flag == "ada":
+        optimizer = optim.Adadelta(parameters, lr=args.lr)
+    elif args.opti_flag == "sgd":
+        optimizer = optim.SGD(model.parameters(), lr=args.lr)
 
 # training
+    valid_train = [(did, item[1]) for did, item in enumerate(training_data) if sum(item[1]) != 0]
+    print len(valid_train), valid_train
     best_f1 = -1.0
-    for epoch in range(iteration_num):
+    for epoch in range(args.epoch_num):
+        debug = True
         training_id = 0
-        #if model.word_embeddings.weight.grad is not None:
-        #    print "## word embedding grad:", torch.sum(model.word_embeddings.weight.grad), model.word_embeddings.weight.grad[:5, :5]
         for sent, tags, gold_triggers in training_data:
-            if training_id == 0:
-                print "## training instance:", training_id
+            if debug and training_id == 9 and model.word_embeddings.weight.grad is not None:
+                print "## train word embedding grad:", training_id, torch.sum(model.word_embeddings.weight.grad), model.word_embeddings.weight.grad#[:5, :5]
+            if training_id % 100 == 0:
+                print "## processed training instance:", training_id, time.asctime()
             iden_tags = [1 if tag != 0 else tag for tag in tags]
 
             model.zero_grad()
@@ -214,12 +222,22 @@ def train(para_arr, data_sets, debug=False):
                 iden_targets = iden_targets.cuda()
 
             #if training_id < 1:    debug = True
-            tag_space, tag_scores, tag_space_iden = model(sentence_in, gpu, debug)
+            #print "## sent(s) for model", sentence_in.size(), sentence_in.size()[0]
+            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, gpu, debug)
+            if debug and training_id == 9 and sum(tags) != 0:
+                #print "tag space, score", training_id, tag_space.size(), tag_scores.size()
+                #print "tag iden space, score", tag_space_iden.size(), tag_scores_iden.size()
+                #print "target class, iden", targets.size(), iden_targets.size()
+                print "-tag scores", tag_scores.data.size(), tag_scores.data, tag_scores.data.max(1)
 
-            #loss = loss_function(tag_scores, targets)
-            loss = loss_function(tag_space, targets) + loss_function(tag_space_iden, iden_targets)
-            #loss_iden = loss_function(tag_space_iden, iden_targets)
-            #loss += loss_iden
+            if 1:
+                loss = loss_function(tag_scores, targets) + loss_function(tag_scores_iden, iden_targets)
+            else:
+                loss = loss_function(tag_space, targets)# + loss_function(tag_space_iden, iden_targets)
+                #loss = loss_function(tag_space, targets)
+                #loss += loss_function(tag_space_iden, iden_targets)
+            if debug and training_id == 9:
+                print "-loss", loss.data
             loss.backward()
             optimizer.step()
             training_id += 1
@@ -261,74 +279,23 @@ def train(para_arr, data_sets, debug=False):
     print "## Iden result:",
     outputPRF(prf_test_iden)
 
-##############
-def getArg(args, flag):
-    arg = None
-    if flag in args:
-        arg = args[args.index(flag)+1]
-    return arg
-
-# arguments received from arguments
-def parseArgs(args):
-    arg1 = getArg(args, "-train")
-    arg2 = getArg(args, "-dev")
-    arg3 = getArg(args, "-test")
-    arg4 = getArg(args, "-embed")
-
-    arg5 = getArg(args, "-tag")
-    arg6 = getArg(args, "-vocab")
-
-    arg7 = getArg(args, "-model")
-
-    arg8 = getArg(args, "-loss")
-    arg9 = getArg(args, "-opt")
-    #arg10 = getArg(args, "-")
-    return [arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9]
-
 if __name__ == "__main__":
-    print "Usage: python .py -train trainFile -embed embeddingFile -ace aceArgumentFile -dev devFile -test testFile"
-    print sys.argv
+    args = get_args()
 
     #######################
     ## default parameters
-    gpu = torch.cuda.is_available()
-    print "gpu available:", gpu
-    #gpu = false
-    test_as_dev = False
-    shuffle_train = True # to select last 500 as dev in feng data
-    use_pretrain = True
-    loss_flag = "cross-entropy" # or nlloss
-    opti_flag = "ada"  # or "sgd"
-    dropout = 0.5
-    bilstm = True
-    num_layers = 1
-    iteration_num = 500
-    hidden_dim = 100
-    learning_rate = 0.03
-    embedding_dim = 100
-
-    use_conv = False
-    conv_width1 = 2
-    conv_width2 = 3
-    conv_filter_num = 100
-    hidden_dim_snd = 300
-
+    embedding_dim = args.embed_dim
 
     #######################
     ## load datasets
-    args_arr = parseArgs(sys.argv)
-    train_filename, dev_filename, test_filename, pretrain_embedding_filename, tag_filename, vocab_filename, model_path, loss_arg, opti_arg = args_arr
-    if loss_arg is not None: loss_flag = loss_arg
-    if opti_arg is not None: opti_flag = opti_arg
-
-    if "-dev" in sys.argv:
-        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data2(args_arr[:-2])
+    if len(args.dev) > 0:
+        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data2(args)
     else:
-        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data(args_arr[:-2])
-        if test_as_dev:
+        training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding, model_path = load_data(args)
+        if args.test_as_dev:
             dev_data = test_data
         else:
-            if shuffle_train:
+            if args.shuffle_train:
                 random.shuffle(training_data, lambda: 0.3) # shuffle data before get dev
             training_data = training_data[:-500]
             dev_data = training_data[-500:]
@@ -339,9 +306,15 @@ if __name__ == "__main__":
     tagset_size = len(tags_data)
 
     if 0:
+        #all_data = test_data
+        #all_data = dev_data+test_data
         all_data = training_data+dev_data+test_data
         sent_lens = [len(item[0]) for item in all_data]
         print "## Statistic sent length:", max(sent_lens), min(sent_lens)
+        sent_len_counter = Counter(sent_lens)
+        for sent_len in range(1, max(sent_lens)+1):
+            sent_num = sum([item[1] for item in sent_len_counter.items() if item[0] <= sent_len])
+            print sent_len, sent_num, sent_num*100.0/len(sent_lens)
         sys.exit(0)
     if 0:
         output_normal_pretrain(pretrain_embedding, vocab, "../ni_data/f.ace.pretrain300.vectors")
@@ -353,18 +326,17 @@ if __name__ == "__main__":
 
     #######################
     ## store and output all parameters
-    if use_pretrain: embedding_dim = pretrain_embed_dim
+    if args.use_pretrain: embedding_dim = pretrain_embed_dim
 
-    para_arr = [vocab_size, tagset_size, embedding_dim, hidden_dim]
-    para_arr.extend([dropout, bilstm, num_layers, gpu, iteration_num, learning_rate])
-    para_arr.extend([len(training_data), len(dev_data), len(test_data)])
-    para_arr.extend([conv_width1, conv_width2, conv_filter_num, hidden_dim_snd])
-    param_str = "p"+str(embedding_dim) + "_hd" + str(hidden_dim) + "_2hd" + str(hidden_dim_snd)
-    if use_conv: param += "_f" + str(conv_filter_num) + "_c" + str(conv_width1) + "_c" + str(conv_width2)
-    param_str += "_lr" + str(learning_rate*100)# + "_" + str() + "_" + str()
+    param_str = "p"+str(embedding_dim) + "_hd" + str(args.hidden_dim) + "_2hd" + str(args.hidden_dim_snd)
+    if args.use_conv: param_str += "_f" + str(args.conv_filter_num) + "_c" + str(args.conv_width1) + "_c" + str(args.conv_width2)
+    if args.use_pretrain: param_str += "_pf"
+    param_str += "_lr" + str(args.lr*100)# + "_" + str() + "_" + str()
     model_path += param_str
-    para_arr.extend([model_path, test_as_dev, shuffle_train, use_conv, use_pretrain, loss_flag, opti_flag])
-    outputParameters(para_arr)
+
+    para_arr = [vocab_size, tagset_size, embedding_dim]
+    para_arr.extend([len(training_data), len(dev_data), len(test_data), model_path])
+    outputParameters(para_arr, args)
 
     #######################
     # begin to train
@@ -372,6 +344,8 @@ if __name__ == "__main__":
     dev_data = [(item[0], item[1], get_trigger(item[1])) for item in dev_data]
     test_data = [(item[0], item[1], get_trigger(item[1])) for item in test_data]
 
+    if 0: # program debug mode
+        training_data = training_data[:2000]
     data_sets = training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding
-    train(para_arr, data_sets)
+    train_func(para_arr, args, data_sets)
 

@@ -9,77 +9,86 @@ import numpy as np
 torch.manual_seed(1)
 
 class LSTMTrigger(nn.Module):
-    def __init__(self, model_params):
+    def __init__(self, model_params, args):
         super(LSTMTrigger, self).__init__()
+        vocab_size, tagset_size, embedding_dim, random_dim, pretrain_embedding = model_params
+        gpu = args.gpu
 
-        use_pretrain, use_conv, bilstm, gpu, num_layers, dropout, embedding_dim, lstm_hidden_dim, hidden_dim_snd, conv_width1, conv_width2, conv_filter_num, vocab_size, tagset_size, random_dim, pretrain_embedding = model_params
-
-        self.lstm_hidden_dim = lstm_hidden_dim
         self.random_embed = False
-        if random_dim >= 50:
-            self.word_embeddings = nn.Embedding(vocab_size, random_dim)
+        self.lstm_hidden_dim = args.hidden_dim
+        self.bilstm_flag = args.bilstm
+        self.lstm_layer = args.num_layers
+        self.batch_size = args.batch_size
+        self.batch_mode = True if args.batch_size>1 else False
+
+        self.use_position = args.use_position
+        self.position_size = 100
+        self.position_dim = 5
+
+        # conv layer
+        self.use_conv = args.use_conv
+        self.in_channels = embedding_dim
+        if self.use_position:
+            self.in_channels += self.position_dim
+        self.out_channels = args.conv_filter_num
+        self.kernal_size1 = args.conv_width1
+        self.kernal_size2 = args.conv_width2
+
+        self.hidden_dim_fst = self.lstm_hidden_dim
+        if self.bilstm_flag: self.hidden_dim_fst *= 2
+        if self.use_conv: self.hidden_dim_fst += self.out_channels*2
+
+        if args.hidden_dim_snd == 0: self.hidden_dim_snd = self.hidden_dim_fst
+        else: self.hidden_dim_snd = args.hidden_dim_snd
+
+        if random_dim >= 50: # use (append) random embedding
+            self.word_embeddings = nn.Embedding(args.vocab_size, random_dim)
             self.pretrain_word_embeddings = torch.from_numpy(pretrain_embedding)
             self.random_embed = True
             embedding_dim += random_dim
         else:
             self.word_embeddings = nn.Embedding(vocab_size, embedding_dim)
-            #print "## word embedding init", self.word_embeddings.weight.requires_grad, self.word_embeddings.weight.data[:5, :5]
             self.word_embeddings.weight.data.copy_(torch.from_numpy(pretrain_embedding))
-            #print "## word embedding upd from pretrain", self.word_embeddings.weight.data[:5, :5]
-            #print "## pretrain embedding", pretrain_embedding[:5, :5]
-
-        self.drop = nn.Dropout(dropout)
-        self.bilstm_flag = bilstm
-        self.lstm_layer = num_layers
-
-# conv layer
-        self.cnn_flag = use_conv
-        self.position_size = 300
-        self.position_dim = 5
         self.position_embeddings = nn.Embedding(self.position_size, self.position_dim)
-        self.in_channels = embedding_dim + self.position_dim
-        self.out_channels = conv_filter_num
-        self.kernal_size1 = conv_width1
-        self.kernal_size2 = conv_width2
-        self.conv1 = nn.Conv1d(self.in_channels, self.out_channels, self.kernal_size1)
-        self.conv2 = nn.Conv1d(self.in_channels, self.out_channels, self.kernal_size2)
 
-        self.lstm = nn.LSTM(embedding_dim, lstm_hidden_dim, num_layers=self.lstm_layer, bidirectional=self.bilstm_flag)
-        self.hidden_dim_fst = lstm_hidden_dim
-        if self.bilstm_flag: self.hidden_dim_fst *= 2
-        if self.cnn_flag: self.hidden_dim_fst += self.out_channels*2
-
-        if hidden_dim_snd == 0:
-            self.hidden_dim_snd = self.hidden_dim_fst
-        else:
-            self.hidden_dim_snd = hidden_dim_snd
-
+        self.conv1 = None
+        self.conv2 = None
+        self.maxp1 = None
+        self.maxp2 = None
+        if self.use_conv:
+            self.conv1 = nn.Conv1d(self.in_channels, self.out_channels, self.kernal_size1)
+            self.conv2 = nn.Conv1d(self.in_channels, self.out_channels, self.kernal_size2)
+            if self.batch_mode:
+                self.maxp1 = nn.MaxPool1d(self.position_size-self.kernal_size1+1)
+                self.maxp2 = nn.MaxPool1d(self.position_size-self.kernal_size2+1)
+        self.drop = nn.Dropout(args.dropout)
+        self.lstm = nn.LSTM(embedding_dim, self.lstm_hidden_dim, num_layers=self.lstm_layer, bidirectional=self.bilstm_flag)
         self.fst_hidden = nn.Linear(self.hidden_dim_fst, self.hidden_dim_snd)
         self.hidden2tag = nn.Linear(self.hidden_dim_snd, tagset_size)
         self.hidden2tag_iden = nn.Linear(self.hidden_dim_snd, 2)
+
         if gpu:
             self.drop = self.drop.cuda()
             self.word_embeddings = self.word_embeddings.cuda()
             self.position_embeddings = self.position_embeddings.cuda()
             self.lstm = self.lstm.cuda()
-            self.conv1 = self.conv1.cuda()
-            self.conv2 = self.conv2.cuda()
+            if self.use_conv: self.conv1 = self.conv1.cuda()
+            if self.use_conv: self.conv2 = self.conv2.cuda()
             self.fst_hidden = self.fst_hidden.cuda()
             self.hidden2tag = self.hidden2tag.cuda()
             self.hidden2tag_iden = self.hidden2tag_iden.cuda()
 
         self.hidden = self.init_hidden(gpu)
 
+    # init hidden of lstm
     def init_hidden(self, gpu):
+        dims = (self.lstm_layer, self.batch_size, self.lstm_hidden_dim)
         if self.bilstm_flag:
-            dims = (2*self.lstm_layer, 1, self.lstm_hidden_dim)
-        else:
-            dims = (self.lstm_layer, 1, self.lstm_hidden_dim)
+            dims = (2*self.lstm_layer, self.batch_size, self.lstm_hidden_dim)
         init_value = torch.Tensor(np.random.uniform(-0.01, 0.01, dims))
         #init_value = torch.zeros(dims)
         h0 = autograd.Variable(init_value)
         c0 = autograd.Variable(init_value)
-
         if gpu:
             h0 = h0.cuda()
             c0 = c0.cuda()
@@ -89,85 +98,92 @@ class LSTMTrigger(nn.Module):
     # to: Variable of batch_size*embedding_dim*sent_length
     def lstmformat2cnn(self, inputs):
         sent_length = inputs.size()[0]
-        batch_size = 1
-        inputs = inputs.view(sent_length, batch_size, -1) # sent_length*batch_size*embedding_dim
+        inputs = inputs.view(sent_length, self.batch_size, -1) # sent_length*batch_size*embedding_dim
         inputs = inputs.transpose(0, 1).transpose(1, 2) # batch_size*embedding_dim*sent_length
+        #inputs = inputs.view(self.batch_size, sent_length, -1) # batch_size*sent_length*embedding_dim
+        #inputs = inputs.transpose(1, 2) # batch_size*embedding_dim*sent_length
         return inputs
 
     # from: batch_size*out_channels*1
-    # to: 1*out_channels
+    # to: 1*batch_size*out_channels, or 1*out_channels
     def cnnformat2lstm(self, outputs):
         outputs = outputs.transpose(1, 2).transpose(0, 1) # 1*batch_size*out_channels
-        outputs = outputs.view(1, self.out_channels)
+        outputs = outputs.view(1, self.out_channels) # 1*out_channels
         return outputs
 
-    def prep_position(self, sentence):
-        positions_arr = [[abs(j) for j in range(-i, len(sentence)-i)] for i in range(len(sentence))]
-        positions = [autograd.Variable(torch.LongTensor(position), requires_grad=False) for position in positions_arr]
+    def position_fea_in_sent(self, sent_length):
+        positions = [[abs(j) for j in range(-i, sent_length-i)] for i in range(sent_length)]
+        positions = [torch.LongTensor(position) for position in positions]
+        positions = [autograd.Variable(position, requires_grad=False) for position in positions]
         return positions
         
+    # sentence shape: (sent_length, )
     def forward(self, sentence, gpu, debug=False):
         # already done init_hidden in training each instance
         #self.hidden = self.init_hidden(gpu)
-
+        sent_length = sentence.size()[0]
+        positions = self.position_fea_in_sent(sent_length)
         embeds = self.word_embeddings(sentence)
-        positions = self.prep_position(sentence)
-        if debug:
-            print "## word embedding:", type(self.word_embeddings.weight.data), self.word_embeddings.weight.data.size()
-            print self.word_embeddings.weight.data[:5, :5]
-            #print type(self.word_embeddings.weight)
-            print "## position embedding:", self.position_embeddings.weight.requires_grad, type(self.position_embeddings.weight), type(self.position_embeddings.weight.data), self.position_embeddings.weight.data.size()
-            print self.position_embeddings.weight.data[:5]
-            #print "## embeds", embeds.requires_grad, embeds.data[:10]
+        #if debug:
+        #    print "## word embedding:", type(self.word_embeddings.weight.data), self.word_embeddings.weight.data.size()
+        #    #print self.word_embeddings.weight.data[:5, :5]
+        #    if self.use_position:
+        #        print "## position embedding:", self.position_embeddings.weight.requires_grad, type(self.position_embeddings.weight), type(self.position_embeddings.weight.data), self.position_embeddings.weight.data.size()
+        #        #print self.position_embeddings.weight.data[:5]
 
         # output grad
-        #if self.word_embeddings.weight.grad is not None:
-        #    print "## word embedding grad:", self.word_embeddings.weight.grad#[:5, :5]
-        #if self.position_embeddings.weight.grad is not None:
-        #    print "## position embedding grad:", self.position_embeddings.weight.grad[:5]
-        #if embeds.grad is not None:
-        #    print "## sent word embedding grad:", embeds.grad[:5, :5]
+        grad_debug = True
+        #if debug and grad_debug:
+        #    if self.word_embeddings.weight.grad is not None:
+        #        print "## word embedding grad:", self.word_embeddings.weight.grad#[:5, :5]
+        #    if self.position_embeddings.weight.grad is not None:
+        #        print "## position embedding grad:", self.position_embeddings.weight.grad[:5]
+        #    if embeds.grad is not None:
+        #        print "## sent word embedding grad:", embeds.grad[:5, :5]
 
         if self.random_embed:
             pretrain_embeds = self.pretrain_word_embeddings(sentence)
             embeds = torch.cat((pretrain_embeds, embeds), 1)
             #print embeds
+        embeds = self.drop(embeds)
 
 # conv forward
-        if self.cnn_flag:
+        if self.use_conv:
             c1_embed = None
             c2_embed = None
-            self.maxp1 = nn.MaxPool1d(len(sentence)-self.kernal_size1+1)
-            self.maxp2 = nn.MaxPool1d(len(sentence)-self.kernal_size2+1)
+            if not self.batch_mode:
+                self.maxp1 = nn.MaxPool1d(sent_length-self.kernal_size1+1)
+                self.maxp2 = nn.MaxPool1d(sent_length-self.kernal_size2+1)
 
             for word_id, position in enumerate(positions):
-                if debug and word_id == 0:
-                    print "## -------------- word_id", word_id
-                    #print position.data.view(1, -1)
+                #if debug and word_id == 0:
+                #    print "## -------------- word_id", word_id
+                #    #print position.data.view(1, -1)
                 if gpu: position = position.cuda()
                 pos_embeds = self.position_embeddings(position)
-                comb_embeds = torch.cat((embeds, pos_embeds), 1)
-                inputs = self.lstmformat2cnn(comb_embeds)
-                if debug and word_id == 0:
-                    print "## maxp1:", type(self.maxp1)
-                    print "## maxp2:", type(self.maxp2)
-                    print "## input:", type(inputs.data), inputs.data.size()
-                    print "## pos_embeds:", type(pos_embeds.data), pos_embeds.data.size()
-                    #print pos_embeds.data[:5]
+                comb_embeds = torch.cat((embeds, pos_embeds), -1)
+                #if debug and word_id == 0:
+                #    print "## position", type(position.data), position.data.size()
+                #    print "## pos_embeds", type(pos_embeds.data), pos_embeds.data.size()
+                #    print "## comb_embeds", type(comb_embeds.data), comb_embeds.data.size()
+                if self.use_position:
+                    inputs = self.lstmformat2cnn(comb_embeds)
+                else:
+                    inputs = self.lstmformat2cnn(embeds)
+                #if debug and word_id == 0:
+                #    print "## maxp1:", type(self.maxp1)
+                #    print "## maxp2:", type(self.maxp2)
+                #    print "## input:", type(inputs.data), inputs.data.size()
 
                 c1 = self.conv1(inputs) # batch_size*out_channels*(sent_length-conv_width+1)
-                if debug and word_id == 0:
-                    print "## c1:", type(c1.data), c1.data.size()
                 p1 = self.maxp1(c1) # batch_size * out_channels * 1
-                if debug and word_id == 0:
-                    print "## p1:", type(p1.data), p1.data.size()
-
                 c2 = self.conv2(inputs)
-                if debug and word_id == 0:
-                    print "## c2:", type(c2.data), c2.data.size()
                 p2 = self.maxp2(c2)
-                if debug and word_id == 0:
-                    print "## p2:", type(p2.data), p2.data.size()
+                #if debug and word_id == 0:
+                #    print "## c1:", type(c1.data), c1.data.size()
+                #    print "## p1:", type(p1.data), p1.data.size()
+                #    print "## c2:", type(c2.data), c2.data.size()
+                #    print "## p2:", type(p2.data), p2.data.size()
 
                 c1_embed_temp = self.cnnformat2lstm(p1)
                 c2_embed_temp = self.cnnformat2lstm(p2)
@@ -180,29 +196,32 @@ class LSTMTrigger(nn.Module):
                 else:
                     c1_embed = torch.cat((c1_embed, c1_embed_temp), 0)
                     c2_embed = torch.cat((c2_embed, c2_embed_temp), 0)
-            if debug:
-                print "## c1_embed:", type(c1_embed.data), c1_embed.data.size()
-                #print c1_embed.data[:5, :5]
-                print "## c2_embed:", type(c2_embed.data), c2_embed.data.size()
-                #print c2_embed.data[:5, :5]
+            #if debug:
+            #    print "## c1_embed:", type(c1_embed.data), c1_embed.data.size()
+            #    #print c1_embed.data[:5, :5]
+            #    print "## c2_embed:", type(c2_embed.data), c2_embed.data.size()
+            #    #print c2_embed.data[:5, :5]
 
-        embeds = self.drop(embeds)
         lstm_out, self.hidden = self.lstm(
-                embeds.view(len(sentence), 1, -1), self.hidden)
-        lstm_out = lstm_out.view(len(sentence), -1)
-        if debug:
-            print "## lstm out:", type(lstm_out.data)
-            #print lstm_out.data[:10, :10]
+                #embeds.view(1, sent_length, -1).transpose(0, 1), self.hidden)
+                embeds.view(sent_length, 1, -1), self.hidden)
+        # lstm_out: sent_length * batch_size * hidden_dim
+        lstm_out = lstm_out.view(sent_length, -1)
+        #if debug:
+        #    print "## lstm out:", lstm_out.size(), type(lstm_out.data)
+        #    #print lstm_out.data[:10, :10]
         hidden_in = lstm_out
-        if self.cnn_flag:
-            #c1_embed= c1_embed.expand(len(sentence), c1_embed.size()[1])
-            #c2_embed= c2_embed.expand(len(sentence), c2_embed.size()[1])
-            hidden_in = torch.cat((lstm_out, c1_embed, c2_embed), 1)
+        if self.use_conv:
+            hidden_in = torch.cat((lstm_out, c1_embed, c2_embed), -1)
 
-        hidden_snd = self.fst_hidden(hidden_in)
+        #if debug:
+        #    print "## hidden in:", hidden_in.data.size(), type(hidden_in.data), hidden_in.view(-1, hidden_in.size(-1)).size()
+
+        hidden_snd = self.fst_hidden(hidden_in.view(-1, hidden_in.size(-1)))
         hidden_snd = F.relu(hidden_snd)
         tag_space = self.hidden2tag(hidden_snd)
         tag_scores = F.log_softmax(tag_space)
         #tag_scores = F.softmax(tag_space)
         tag_space_iden = self.hidden2tag_iden(hidden_snd)
-        return tag_space, tag_scores, tag_space_iden
+        tag_scores_iden = F.softmax(tag_space_iden)
+        return tag_space, tag_scores, tag_space_iden, tag_scores_iden

@@ -5,35 +5,35 @@ import random
 
 Tab = "\t"
 
-def outputParameters(para_arr):
-    vocab_size, tagset_size, embedding_dim, hidden_dim = para_arr[:4]
-    dropout, bilstm, num_layers, gpu, iteration_num, learning_rate = para_arr[4:10]
-    training_size, dev_size, test_size = para_arr[10:13]
-    conv_width1, conv_width2, conv_filter_num, hidden_dim_snd = para_arr[13:17]
-    model_path, test_as_dev, shuffle_train, use_conv, use_pretrain, loss_flag, opti_flag = para_arr[17:24]
+def outputParameters(para_arr, args):
+    vocab_size, tagset_size, embedding_dim = para_arr[:3]
+    training_size, dev_size, test_size = para_arr[3:6]
+    model_path = para_arr[6]
 
     print "----- train size         -----", Tab, Tab, training_size
     print "----- dev size           -----", Tab, Tab, dev_size
     print "----- test size          -----", Tab, Tab, test_size
     print "----- vocab size         -----", Tab, Tab, vocab_size
     print "----- tags size          -----", Tab, Tab, tagset_size
+    print "----- batch size         -----", Tab, Tab, args.batch_size
 
-    print "----- bilstm             -----", Tab, Tab, bilstm
+    print "----- bilstm             -----", Tab, Tab, args.bilstm
     print "----- embeds dim         -----", Tab, Tab, embedding_dim
-    print "----- hidden dim         -----", Tab, Tab, hidden_dim
-    print "----- hidd dim 2nd       -----", Tab, Tab, hidden_dim_snd
-    print "----- layers num         -----", Tab, Tab, num_layers
-    print "----- dropout            -----", Tab, Tab, dropout
-    print "----- learn rate         -----", Tab, Tab, learning_rate
-    print "----- #iteration         -----", Tab, Tab, iteration_num
-    print "----- use gpu            -----", Tab, Tab, gpu
-    print "----- test as dev        -----", Tab, Tab, test_as_dev
-    print "----- shuf train         -----", Tab, Tab, shuffle_train
-    print "----- use conv           -----", Tab, Tab, use_conv
-    if not use_conv: return
-    print "----- conv1 width        -----", Tab, Tab, conv_width1
-    print "----- conv2 width        -----", Tab, Tab, conv_width2
-    print "----- #conv filter       -----", Tab, Tab, conv_filter_num
+    print "----- hidden dim         -----", Tab, Tab, args.hidden_dim
+    print "----- hidd dim 2nd       -----", Tab, Tab, args.hidden_dim_snd
+    print "----- layers num         -----", Tab, Tab, args.num_layers
+    print "----- dropout            -----", Tab, Tab, args.dropout
+    print "----- learn rate         -----", Tab, Tab, args.lr
+    print "----- #iteration         -----", Tab, Tab, args.epoch_num
+    print "----- use gpu            -----", Tab, Tab, args.gpu
+    print "----- test as dev        -----", Tab, Tab, args.test_as_dev
+    print "----- shuf train         -----", Tab, Tab, args.shuffle_train
+    print "----- use conv           -----", Tab, Tab, args.use_conv
+    print "----- use position       -----", Tab, Tab, args.use_position
+    if not args.use_conv: return
+    print "----- conv1 width        -----", Tab, Tab, args.conv_width1
+    print "----- conv2 width        -----", Tab, Tab, args.conv_width2
+    print "----- #conv filter       -----", Tab, Tab, args.conv_filter_num
 
 
 def outputPRF(arr):
@@ -89,7 +89,7 @@ def loadTrainData2(filename):
     content = [line.strip().lower() for line in content if len(line.strip())>1]
     data = [(line.split("\t")[0].strip().split(), line.split("\t")[1].strip().split()) for line in content]
 
-    data = [item for item in data if len(item[0]) > 3]
+    data = [item for item in data if len(item[0]) > 3 and len(item[0])<=100]
     if len(data) != len(content): print "-- length new ori", len(data), len(content)
     for sent_id, sent_item in enumerate(data):
         if len(sent_item[0]) < 1 or len(sent_item[1]) < 1 or len(sent_item[0]) != len(sent_item[1]):
@@ -103,7 +103,7 @@ def loadTrainData(filename):
     content = open(filename, "r").readlines()
     content = [line.strip() for line in content if len(line.strip())>1]
     data = [(line.split("\t")[0].strip().split(), line.split("\t")[1].strip().split()) for line in content]
-    data = [([int(item) for item in sent], [int(item) for item in tag]) for sent, tag in data]
+    data = [([int(item) for item in sent], [int(item) for item in tag]) for sent, tag in data if len(sent) <= 100]
     #data = [(sent, [0 if item == 0 else 1 for item in tag]) for sent, tag in data]
     if len(data) != len(content): print "-- length new ori", len(data), len(content)
     for sent_id, sent_item in enumerate(data):
