@@ -98,10 +98,10 @@ class LSTMTrigger(nn.Module):
     # to: Variable of batch_size*embedding_dim*sent_length
     def lstmformat2cnn(self, inputs):
         sent_length = inputs.size()[0]
-        inputs = inputs.view(sent_length, self.batch_size, -1) # sent_length*batch_size*embedding_dim
-        inputs = inputs.transpose(0, 1).transpose(1, 2) # batch_size*embedding_dim*sent_length
-        #inputs = inputs.view(self.batch_size, sent_length, -1) # batch_size*sent_length*embedding_dim
-        #inputs = inputs.transpose(1, 2) # batch_size*embedding_dim*sent_length
+        #inputs = inputs.view(sent_length, self.batch_size, -1) # sent_length*batch_size*embedding_dim
+        #inputs = inputs.transpose(0, 1).transpose(1, 2) # batch_size*embedding_dim*sent_length
+        inputs = inputs.view(self.batch_size, sent_length, -1) # batch_size*sent_length*embedding_dim
+        inputs = inputs.transpose(1, 2) # batch_size*embedding_dim*sent_length
         return inputs
 
     # from: batch_size*out_channels*1
@@ -138,12 +138,10 @@ class LSTMTrigger(nn.Module):
         #        print "## word embedding grad:", self.word_embeddings.weight.grad#[:5, :5]
         #    if self.position_embeddings.weight.grad is not None:
         #        print "## position embedding grad:", self.position_embeddings.weight.grad[:5]
-        #    if embeds.grad is not None:
-        #        print "## sent word embedding grad:", embeds.grad[:5, :5]
 
         if self.random_embed:
             pretrain_embeds = self.pretrain_word_embeddings(sentence)
-            embeds = torch.cat((pretrain_embeds, embeds), 1)
+            embeds = torch.cat((pretrain_embeds, embeds), -1)
             #print embeds
         embeds = self.drop(embeds)
 
@@ -203,8 +201,8 @@ class LSTMTrigger(nn.Module):
             #    #print c2_embed.data[:5, :5]
 
         lstm_out, self.hidden = self.lstm(
-                #embeds.view(1, sent_length, -1).transpose(0, 1), self.hidden)
-                embeds.view(sent_length, 1, -1), self.hidden)
+                embeds.view(1, sent_length, -1).transpose(0, 1), self.hidden)
+                #embeds.view(sent_length, 1, -1), self.hidden)
         # lstm_out: sent_length * batch_size * hidden_dim
         lstm_out = lstm_out.view(sent_length, -1)
         #if debug:
