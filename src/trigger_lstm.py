@@ -11,7 +11,7 @@ from aceEventUtil import loadEventHierarchy
 #from get_constituent_topdown_oracle import unkify
 from util import outputPRF, outputParameters
 from util import output_normal_pretrain, output_dynet_format
-from util import check_trigger, check_trigger_test, check_data
+from util import check_dataloader
 from util import get_trigger, evalPRF, evalPRF_iden
 from util import load_data, load_data2
 from args import get_args
@@ -27,6 +27,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data as torch_data
 
+from ace_event_dataset import MyDataset_batch, MyDataset
 from lstm_trigger import LSTMTrigger
 torch.manual_seed(1)
 Tab = "\t"
@@ -42,50 +43,49 @@ def arr2tensor(arr):
 def tensor2var(eg_tensor):
     return autograd.Variable(eg_tensor, requires_grad=False)
 
-def eval_model(data, model, loss_function, data_flag, gpu):
-    debug = False
+def eval_model(data_loader, model, loss_function, data_flag, gpu):
+    debug = True
     loss_all = 0
     gold_results = []
     pred_results = []
-    for sent, tags, gold_triggers in data[:]:
+    #for sent, tags, gold_triggers in data[:]:
+    for iteration, batch in enumerate(data_loader):
+        sentence_in, targets = batch
+        iden_targets = torch.gt(targets, torch.zeros(targets.size()).type_as(targets)) 
 
-        sentence_in = tensor2var(arr2tensor(sent))
-        targets = tensor2var(arr2tensor(tags))
-        iden_tags = [1 if tag != 0 else tag for tag in tags]
-        iden_targets = tensor2var(arr2tensor(iden_tags))
+        sentence_in = tensor2var(sentence_in)
+        targets = tensor2var(targets)
+        iden_targets = tensor2var(iden_targets)
 
         if gpu:
             sentence_in = sentence_in.cuda()
-            targets = targets.cuda()
-            iden_targets = iden_targets.cuda()
 
         tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, gpu)
 
         _, tag_outputs = tag_scores.data.max(1)
         if gpu: tag_outputs = tag_outputs.cpu()
-        if debug:
-            if len(gold_results) in range(10, 11):
-                print "-tag scores", tag_scores.data.size(), tag_scores.data[:1,], tag_scores.data[:1,].max(1)
-                print "-tag output", tag_outputs.numpy().tolist()
+        if gpu: tag_scores = tag_scores.cpu()
+        if gpu: tag_scores_iden = tag_scores_iden.cpu()
 
-        sys_triggers = get_trigger(tag_outputs.view(len(tags)).numpy().tolist())
+        for target_doc in targets:
+            gold_triggers = get_trigger(target_doc.data.numpy().tolist())
+            gold_results.append(gold_triggers)
+            #print "eval target doc", target_doc.data.numpy().tolist()
+            #print gold_triggers
+        for out_doc in tag_outputs.view(args.batch_size, -1):
+            sys_triggers = get_trigger(out_doc.numpy().tolist())
+            pred_results.append(sys_triggers)
+            #print " eval out doc", out_doc.numpy().tolist()
+            #print sys_triggers
 
-        gold_results.append(gold_triggers)
-        pred_results.append(sys_triggers)
-
-        if debug and data_flag == "train":
-            if len(gold_results) in range(10, 11):
-            #if len(gold_results) in range(0, 15):
-                if len(gold_triggers) == 0: continue
-                print "-gold tag", gold_triggers
-                print "-out tag", sys_triggers
-        if 1:
-            loss = loss_function(tag_scores, targets) + loss_function(tag_scores_iden, iden_targets)
-        else:
-            loss = loss_function(tag_space, targets)# + loss_function(tag_space_iden, iden_targets)
+        loss = loss_function(tag_scores, targets.view(-1))
+        loss += loss_function(tag_scores_iden, iden_targets.type_as(targets).view(-1))
         loss_all += loss.data[0]
-    #print "## gold out", gold_results
-    #print "## sys out", pred_results
+    if debug:
+        print "## Results for eval, sample 20"
+        for i in range(10):
+            print i, gold_results[i]
+            print i, pred_results[i]
     prf = evalPRF(gold_results, pred_results, data_flag)
     prf_iden = evalPRF_iden(gold_results, pred_results)
     return loss_all, prf, prf_iden
@@ -101,9 +101,10 @@ def train_func(para_arr, args, data_sets, debug=False):
     model_path = para_arr[6]
     gpu = args.gpu
 
-    training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding = data_sets
+    #training_data, dev_data, test_data, pretrain_embedding = data_sets # non-batch mode
+    train_loader, dev_loader, test_loader, pretrain_embedding = data_sets
 
-    random_dim = -1
+    random_dim = 10
 
 # init model
     if not args.use_pretrain:
@@ -124,63 +125,77 @@ def train_func(para_arr, args, data_sets, debug=False):
     elif args.opti_flag == "sgd":
         optimizer = optim.SGD(model.parameters(), lr=args.lr)
 
+    if 0:
+       check_dataloader(train_loader)
+       #return
 # training
-    valid_train = [(did, item[1]) for did, item in enumerate(training_data) if sum(item[1]) != 0]
-    print len(valid_train), valid_train
     best_f1 = -1.0
     for epoch in range(args.epoch_num):
-        debug = True
         training_id = 0
-        if args.shuffle_train:
-            random.shuffle(training_data) # shuffle data before get dev
-        for sent, tags, gold_triggers in training_data:
-            if debug and training_id == 9 and model.word_embeddings.weight.grad is not None:
-                print "## train word embedding grad:", training_id, torch.sum(model.word_embeddings.weight.grad), model.word_embeddings.weight.grad#[:5, :5]
-            if training_id % 100 == 0:
-                print "## processed training instance:", training_id, time.asctime()
-            iden_tags = [1 if tag != 0 else tag for tag in tags]
 
+        for iteration, batch in enumerate(train_loader):
             model.zero_grad()
             model.hidden = model.init_hidden(gpu)
+            sentence_in, targets = batch
+            #print iteration, targets.numpy().tolist()
+            iden_targets = torch.gt(targets, torch.zeros(targets.size()).type_as(targets)) 
+            #print "--", targets.numpy().tolist()
 
-            sentence_in = tensor2var(arr2tensor(sent))
-            targets = tensor2var(arr2tensor(tags))
-            iden_targets = tensor2var(arr2tensor(iden_tags))
+            #if iteration == 10: break
+            debug = True
+            #debug = True if training_id in [0, 8, 9] else False
+            #if debug and model.word_embeddings.weight.grad is not None:
+            #    print "## gold tag", training_id, batch[1].numpy().tolist()
+                #print "## word embedding grad:", training_id, torch.sum(model.word_embeddings.weight.grad), model.word_embeddings.weight.grad#[:5, :5]
+            #if debug:
+            #    print "----------- sentences", sentence_in.size()
+            #    print sentence_in.numpy().tolist()
+            #    print "----------- targets", targets.size()
+            #    print targets.numpy().tolist()
+            #    print "----------- iden targets", iden_targets.size()
+            #    #print iden_targets
 
+            sentence_in = tensor2var(sentence_in)
+            targets = tensor2var(targets)
+            iden_targets = tensor2var(iden_targets).type_as(targets)
             if gpu:
                 sentence_in = sentence_in.cuda()
                 targets = targets.cuda()
                 iden_targets = iden_targets.cuda()
 
-            #if training_id < 1:    debug = True
-            #print "## sent(s) for model", sentence_in.size(), sentence_in.size()[0]
             tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, gpu, debug)
-            if debug and training_id == 9 and sum(tags) != 0:
-                print "##size of tag_scores, targets, tag_scores_iden, iden_targets", tag_scores.size(), targets.size(), tag_scores_iden.size(), iden_targets.size()
-                print "##data of tag_scores, targets, tag_scores_iden, iden_targets"
-                print tag_scores.data
-                print targets.data
-                print tag_scores_iden.data
-                print iden_targets.data
+            #if debug:
+                #print "##size of tag_scores, targets, tag_scores_iden, iden_targets", tag_scores.size(), targets.view(-1).size(), tag_scores_iden.size(), iden_targets.view(-1).size()
+                #print "##data of tag_scores, targets, tag_scores_iden, iden_targets"
+                #print tag_scores.data
+                #print targets.cpu().view(-1).data.numpy().tolist
+                #print tag_scores_iden.data
+                #print iden_targets.data
+                #print "## eval outputs", tag_scores.data.max(1)[1]
+            #if training_id in [8, 9]:
+            #if debug:
+            #    print "--", targets.cpu().data.numpy().tolist()
+            #    for target_doc in targets.cpu().data.numpy().tolist():
+            #        print "eval target doc", target_doc#.data.numpy().tolist()
+            #        gold_triggers = get_trigger(target_doc)#.data.numpy().tolist())
+            #        print gold_triggers
 
-            if 1:
-                loss = loss_function(tag_scores, targets) + loss_function(tag_scores_iden, iden_targets)
-            else:
-                loss = loss_function(tag_space, targets) + loss_function(tag_space_iden, iden_targets)
-            if debug and training_id == 9:
-                print "-loss", loss.data
+            loss = loss_function(tag_scores, targets.view(-1))
+            loss += loss_function(tag_scores_iden, iden_targets.view(-1))
             loss.backward()
             optimizer.step()
-            training_id += 1
+            training_id += sentence_in.size(0)
+            if args.batch_size>=1 and iteration % 100 == 0:
+                print "## training id in batch", iteration, " is :", training_id, time.asctime()
 
-        loss_train, prf_train, prf_train_iden = eval_model(training_data, model, loss_function, "train", gpu)
+        loss_train, prf_train, prf_train_iden = eval_model(train_loader, model, loss_function, "train", gpu)
         print "## train results on epoch:", epoch, Tab, loss_train, time.asctime(), Tab,
         outputPRF(prf_train)
         print "## Iden result:", 
         outputPRF(prf_train_iden)
 
 # result on dev
-        loss_dev, prf_dev, prf_dev_iden = eval_model(dev_data, model, loss_function, "dev", gpu)
+        loss_dev, prf_dev, prf_dev_iden = eval_model(dev_loader, model, loss_function, "dev", gpu)
         if prf_dev[2] > best_f1:
             print "##-- New best dev results on epoch", epoch, Tab, best_f1, "(old best)", Tab, loss_dev, time.asctime(), Tab,
             best_f1 = prf_dev[2]
@@ -194,9 +209,9 @@ def train_func(para_arr, args, data_sets, debug=False):
         if epoch >= 10 and epoch % 10 == 0:
             if epoch % 100 == 0:
                 model_test = torch.load(model_path)
-                loss_test, prf_test, prf_test_iden = eval_model(test_data, model_test, loss_function, "test_final", gpu)
+                loss_test, prf_test, prf_test_iden = eval_model(test_loader, model_test, loss_function, "test_final", gpu)
             else:
-                loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test", gpu)
+                loss_test, prf_test, prf_test_iden = eval_model(test_loader, model, loss_function, "test", gpu)
             print "##-- test results on epoch", epoch, Tab, loss_test, time.asctime(), Tab,
             outputPRF(prf_test)
             print "## Iden result:",
@@ -204,7 +219,7 @@ def train_func(para_arr, args, data_sets, debug=False):
 
 # final result on test
     model = torch.load(model_path)
-    loss_test, prf_test, prf_test_iden = eval_model(test_data, model, loss_function, "test_final", gpu)
+    loss_test, prf_test, prf_test_iden = eval_model(test_loader, model, loss_function, "test_final", gpu)
     print "## Final results on test", loss_test, time.asctime(), Tab,
     outputPRF(prf_test)
     print "## Iden result:",
@@ -237,15 +252,9 @@ if __name__ == "__main__":
     tagset_size = len(tags_data)
 
     if 0:
-        #all_data = test_data
-        #all_data = dev_data+test_data
         all_data = training_data+dev_data+test_data
         sent_lens = [len(item[0]) for item in all_data]
         print "## Statistic sent length:", max(sent_lens), min(sent_lens)
-        sent_len_counter = Counter(sent_lens)
-        for sent_len in range(1, max(sent_lens)+1):
-            sent_num = sum([item[1] for item in sent_len_counter.items() if item[0] <= sent_len])
-            print sent_len, sent_num, sent_num*100.0/len(sent_lens)
         sys.exit(0)
     if 0:
         output_normal_pretrain(pretrain_embedding, vocab, "../ni_data/f.ace.pretrain300.vectors")
@@ -270,13 +279,40 @@ if __name__ == "__main__":
     outputParameters(para_arr, args)
 
     #######################
-    # begin to train
-    training_data = [(item[0], item[1], get_trigger(item[1])) for item in training_data]
-    dev_data = [(item[0], item[1], get_trigger(item[1])) for item in dev_data]
-    test_data = [(item[0], item[1], get_trigger(item[1])) for item in test_data]
+    # dataset prepare
 
-    if 0: # program debug mode
-        training_data = training_data[:2000]
-    data_sets = training_data, dev_data, test_data, vocab, tags_data, pretrain_embedding
+    #### Non_batch mode
+    #training_data = [(item[0], item[1], get_trigger(item[1])) for item in training_data]
+    #dev_data = [(item[0], item[1], get_trigger(item[1])) for item in dev_data]
+    #test_data = [(item[0], item[1], get_trigger(item[1])) for item in test_data]
+    #data_sets = training_data, dev_data, test_data, pretrain_embedding
+
+    #### Batch mode
+    # max length = 297
+    train_sents = [item[0] for item in training_data]
+    train_labels = [item[1] for item in training_data]
+    dev_sents = [item[0] for item in dev_data]
+    dev_labels = [item[1] for item in dev_data]
+    test_sents = [item[0] for item in test_data]
+    test_labels = [item[1] for item in test_data]
+
+    if args.batch_size > 1:
+        train_dataset = MyDataset_batch(train_sents, train_labels)
+        dev_dataset = MyDataset_batch(dev_sents, dev_labels)
+        test_dataset = MyDataset_batch(test_sents, test_labels)
+    else:
+        train_dataset = MyDataset(train_sents, train_labels)
+        dev_dataset = MyDataset(dev_sents, dev_labels)
+        test_dataset = MyDataset(test_sents, test_labels)
+        #print train_dataset.__getitem__(8)
+    train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
+    dev_loader = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
+    test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
+    data_sets = train_loader, dev_loader, test_loader, pretrain_embedding
+
+    #check_dataloader(train_loader)
+    #sys.exit(1)
+
+    # begin to train
     train_func(para_arr, args, data_sets)
 
