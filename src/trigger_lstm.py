@@ -10,11 +10,10 @@ from collections import Counter
 from aceEventUtil import loadEventHierarchy
 #from get_constituent_topdown_oracle import unkify
 from util import outputPRF, outputParameters
-from util import loadVocab, loadTag, loadTrainData, loadPretrain
-from util import loadTrainData2, loadPretrain2
 from util import output_normal_pretrain, output_dynet_format
 from util import check_trigger, check_trigger_test, check_data
 from util import get_trigger, evalPRF, evalPRF_iden
+from util import load_data, load_data2
 from args import get_args
 
 import numpy as np
@@ -90,78 +89,6 @@ def eval_model(data, model, loss_function, data_flag, gpu):
     prf = evalPRF(gold_results, pred_results, data_flag)
     prf_iden = evalPRF_iden(gold_results, pred_results)
     return loss_all, prf, prf_iden
-
-def load_data2(args_arr):
-    debug = True
-
-    pretrain_embedding, pretrain_vocab = loadPretrain2(args.pretrain_embed)
-    print "## pretrained embedding loaded.", time.asctime(), pretrain_embedding.shape
-
-    training_data = loadTrainData2(args.train)
-    print "## train loaded.", args.train, time.asctime()
-    dev_data = loadTrainData2(args.dev)
-    print "## dev loaded.", args.dev, time.asctime()
-    test_data = loadTrainData2(args.test)
-    print "## test loaded.", args.test, time.asctime()
-    all_data = training_data + dev_data + test_data
-    vocab = sorted(list(set([word_text for sent_text, _ in all_data for word_text in sent_text])))
-    vocab = dict(zip(vocab, range(len(vocab))))
-    vocab["<unk>"] = len(vocab)
-    #pretrain_vocab = vocab
-    #pretrain_embedding = np.random.uniform(-1.0, 1.0, (len(pretrain_vocab), 300))
-    unk_id = len(pretrain_vocab)-1
-
-    id2word = dict([(pretrain_vocab[item], item) for item in pretrain_vocab])
-    if debug:
-        for i in range(10, 13):
-            sent_tags = training_data[i][1]
-            triggers = [(word_idx, training_data[i][0][word_idx], tag) for word_idx, tag in enumerate(sent_tags) if tag != "none"]
-            print "## eg:", training_data[i]
-            print triggers
-    tags_data = sorted(list(set([tag_text for sent_text, tags_text in training_data for tag_text in tags_text if tag_text != "none"])))
-    tags_data = dict(zip(tags_data, range(1, len(tags_data)+1)))
-    #tags_data = dict([(tag_text, tag_id+1) for tag_id, tag_text in enumerate(tags_data)])
-    tags_data["none"] = 0
-
-    ## text to id
-    training_data = [([pretrain_vocab[word_text] if word_text in pretrain_vocab else unk_id for word_text in sent_text_arr], [tags_data.get(tag_text) for tag_text in tags_text_arr]) for sent_text_arr, tags_text_arr in training_data]
-    dev_data = [([pretrain_vocab[word_text] if word_text in pretrain_vocab else unk_id for word_text in sent_text_arr], [tags_data.get(tag_text) for tag_text in tags_text_arr]) for sent_text_arr, tags_text_arr in dev_data]
-    test_data = [([pretrain_vocab[word_text] if word_text in pretrain_vocab else unk_id for word_text in sent_text_arr], [tags_data.get(tag_text) for tag_text in tags_text_arr]) for sent_text_arr, tags_text_arr in test_data]
-    if debug:
-        for i in range(10, 13):
-            sent_tags = training_data[i][1]
-            triggers = [(word_idx, id2word[training_data[i][0][word_idx]], tag) for word_idx, tag in enumerate(sent_tags) if tag != 0]
-            print "## eg:", training_data[i]
-            print triggers
-    return training_data, dev_data, test_data, pretrain_vocab, tags_data, pretrain_embedding, args.model
-
-def load_data(args_arr):
-# pretrain embedding: matrix (vocab_size, pretrain_embed_dim)
-    pretrain_embedding = loadPretrain(args.pretrain_embed)
-    print "## pretrained embedding loaded.", time.asctime(), pretrain_embedding.shape
-
-# vocab: word: word_id
-    vocab = loadVocab(args.vocab)
-    print "## vocab loaded.", time.asctime()
-
-# train test
-    training_data = loadTrainData(args.train)
-    print "## train loaded.", args.train, time.asctime()
-    #training_data = check_data(training_data, vocab)
-    test_data = loadTrainData(args.test)
-    print "## test loaded.", args.test, time.asctime()
-    #test_data = check_data(test_data, vocab)
-    #check_trigger_test(training_data, test_data)
-
-# tags_data: tag_name: tag_id
-    tags_data = loadTag(args.tag)
-    print "## event tags loaded.", time.asctime()
-
-    #for sent, tag in training_data:
-    #    check_trigger(tag)
-    #for sent, tag in test_data:
-    #    check_trigger(tag)
-    return training_data, None, test_data, vocab, tags_data, pretrain_embedding, args.model
 
 def init_embedding(dim1, dim2):
     init_embedding = np.random.uniform(-0.01, 0.01, (dim1, dim2))
