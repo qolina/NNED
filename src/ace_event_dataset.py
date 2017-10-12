@@ -1,4 +1,4 @@
-
+import torch
 import torch.utils.data as torch_data
 
 class MyDataset_batch(torch_data.Dataset):

@@ -2,6 +2,8 @@
 from collections import Counter
 import numpy as np
 import random
+import time
+import torch
 
 Tab = "\t"
 
@@ -276,7 +278,7 @@ def calPRF(common, num, num_gold):
     return pre, rec, f1
 
 
-def load_data2(args_arr):
+def load_data2(args):
     debug = True
 
     pretrain_embedding, pretrain_vocab = loadPretrain2(args.pretrain_embed)
@@ -320,7 +322,7 @@ def load_data2(args_arr):
             print triggers
     return training_data, dev_data, test_data, pretrain_vocab, tags_data, pretrain_embedding, args.model
 
-def load_data(args_arr):
+def load_data(args):
 # pretrain embedding: matrix (vocab_size, pretrain_embed_dim)
     pretrain_embedding = loadPretrain(args.pretrain_embed)
     print "## pretrained embedding loaded.", time.asctime(), pretrain_embedding.shape
