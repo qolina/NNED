@@ -38,8 +38,10 @@ def prepare_sequence(seq, to_ix):
     return tensor
 
 def arr2tensor(arr):
-    tensor = autograd.Variable(torch.LongTensor(arr), requires_grad=False)
-    return tensor
+    return torch.LongTensor(arr)
+
+def tensor2var(eg_tensor):
+    return autograd.Variable(eg_tensor, requires_grad=False)
 
 def eval_model(data, model, loss_function, data_flag, gpu):
     debug = False
@@ -48,10 +50,10 @@ def eval_model(data, model, loss_function, data_flag, gpu):
     pred_results = []
     for sent, tags, gold_triggers in data[:]:
 
-        sentence_in = arr2tensor(sent)
-        targets = arr2tensor(tags)
+        sentence_in = tensor2var(arr2tensor(sent))
+        targets = tensor2var(arr2tensor(tags))
         iden_tags = [1 if tag != 0 else tag for tag in tags]
-        iden_targets = arr2tensor(iden_tags)
+        iden_targets = tensor2var(arr2tensor(iden_tags))
 
         if gpu:
             sentence_in = sentence_in.cuda()
@@ -202,6 +204,8 @@ def train_func(para_arr, args, data_sets, debug=False):
     for epoch in range(args.epoch_num):
         debug = True
         training_id = 0
+        if args.shuffle_train:
+            random.shuffle(training_data) # shuffle data before get dev
         for sent, tags, gold_triggers in training_data:
             if debug and training_id == 9 and model.word_embeddings.weight.grad is not None:
                 print "## train word embedding grad:", training_id, torch.sum(model.word_embeddings.weight.grad), model.word_embeddings.weight.grad#[:5, :5]
@@ -212,9 +216,9 @@ def train_func(para_arr, args, data_sets, debug=False):
             model.zero_grad()
             model.hidden = model.init_hidden(gpu)
 
-            sentence_in = arr2tensor(sent)
-            targets = arr2tensor(tags)
-            iden_targets = arr2tensor(iden_tags)
+            sentence_in = tensor2var(arr2tensor(sent))
+            targets = tensor2var(arr2tensor(tags))
+            iden_targets = tensor2var(arr2tensor(iden_tags))
 
             if gpu:
                 sentence_in = sentence_in.cuda()
@@ -225,17 +229,17 @@ def train_func(para_arr, args, data_sets, debug=False):
             #print "## sent(s) for model", sentence_in.size(), sentence_in.size()[0]
             tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, gpu, debug)
             if debug and training_id == 9 and sum(tags) != 0:
-                #print "tag space, score", training_id, tag_space.size(), tag_scores.size()
-                #print "tag iden space, score", tag_space_iden.size(), tag_scores_iden.size()
-                #print "target class, iden", targets.size(), iden_targets.size()
-                print "-tag scores", tag_scores.data.size(), tag_scores.data, tag_scores.data.max(1)
+                print "##size of tag_scores, targets, tag_scores_iden, iden_targets", tag_scores.size(), targets.size(), tag_scores_iden.size(), iden_targets.size()
+                print "##data of tag_scores, targets, tag_scores_iden, iden_targets"
+                print tag_scores.data
+                print targets.data
+                print tag_scores_iden.data
+                print iden_targets.data
 
             if 1:
                 loss = loss_function(tag_scores, targets) + loss_function(tag_scores_iden, iden_targets)
             else:
-                loss = loss_function(tag_space, targets)# + loss_function(tag_space_iden, iden_targets)
-                #loss = loss_function(tag_space, targets)
-                #loss += loss_function(tag_space_iden, iden_targets)
+                loss = loss_function(tag_space, targets) + loss_function(tag_space_iden, iden_targets)
             if debug and training_id == 9:
                 print "-loss", loss.data
             loss.backward()
@@ -295,7 +299,7 @@ if __name__ == "__main__":
         if args.test_as_dev:
             dev_data = test_data
         else:
-            if args.shuffle_train:
+            if 1:
                 random.shuffle(training_data, lambda: 0.3) # shuffle data before get dev
             training_data = training_data[:-500]
             dev_data = training_data[-500:]
