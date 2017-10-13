@@ -1,7 +1,8 @@
 #!/bin/sh
 
 # feng
-python trigger_lstm.py -train ../ni_data/pre_processed_feng/tmp.train -test ../ni_data/pre_processed_feng/tmp.test  -tag ../ni_data/pre_processed_feng/labellist -pretrain_embed ../ni_data/pre_processed_feng/wordvector -vocab ../ni_data/pre_processed_feng/wordlist -model ../ni_data/models/model.trigger --batch_size 10 --lr 0.3 
+python trigger_lstm.py -train ../ni_data/pre_processed_feng/tmp.train -test ../ni_data/pre_processed_feng/tmp.test  -tag ../ni_data/pre_processed_feng/labellist -pretrain_embed ../ni_data/pre_processed_feng/wordvector -vocab ../ni_data/pre_processed_feng/wordlist -model ../ni_data/models/model.trigger --batch_size 10 --lr 0.5 --no_use_pos --no_use_conv
+
 #CUDA_VISIBLE_DEVICES=3 python trigger_lstm.py -train ../ni_data/pre_processed_feng/tmp.train -test ../ni_data/pre_processed_feng/tmp.test  -tag ../ni_data/pre_processed_feng/labellist -pretrain_embed ../ni_data/pre_processed_feng/wordvector -vocab ../ni_data/pre_processed_feng/wordlist -model ../ni_data/models/model.trigger
 
 # qin corpus

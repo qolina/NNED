@@ -203,10 +203,12 @@ class LSTMTrigger(nn.Module):
             #    print "## c2_embed:", type(c2_embed.data), c2_embed.data.size()
             #    #print c2_embed.data[:5, :5]
 
-        embeds_temp = embeds.view(self.batch_size, sent_length, -1).transpose(0, 1)
-        if debug:
-            print "## sent embeds to feed lstm", embeds_temp.data.size(), torch.sum(embeds_temp.data)
-            print embeds_temp
+        #embeds_temp = embeds.view(self.batch_size, sent_length, -1).transpose(0, 1)
+        #if debug:
+        #    print "## sent embeds to feed lstm", embeds_temp.data.size(), torch.sum(embeds_temp.data)
+        #    print embeds_temp
+
+        self.lstm.flatten_parameters()
         lstm_out, self.hidden = self.lstm(
                 embeds.transpose(0, 1), self.hidden)
                 #embeds.view(self.batch_size, sent_length, -1).transpose(0, 1), self.hidden)

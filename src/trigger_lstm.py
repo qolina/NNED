@@ -55,7 +55,7 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
 
         sentence_in = tensor2var(sentence_in)
         targets = tensor2var(targets)
-        iden_targets = tensor2var(iden_targets)
+        iden_targets = tensor2var(iden_targets).type_as(targets)
 
         if gpu:
             sentence_in = sentence_in.cuda()
@@ -66,6 +66,8 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
         if gpu: tag_outputs = tag_outputs.cpu()
         if gpu: tag_scores = tag_scores.cpu()
         if gpu: tag_scores_iden = tag_scores_iden.cpu()
+        if gpu: tag_space = tag_space.cpu()
+        if gpu: tag_space_iden = tag_space_iden.cpu()
 
         for target_doc in targets:
             gold_triggers = get_trigger(target_doc.data.numpy().tolist())
@@ -78,8 +80,10 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
             #print " eval out doc", out_doc.numpy().tolist()
             #print sys_triggers
 
-        loss = loss_function(tag_scores, targets.view(-1))
-        loss += loss_function(tag_scores_iden, iden_targets.type_as(targets).view(-1))
+        if 1:
+            loss = loss_function(tag_scores, targets.view(-1)) + loss_function(tag_scores_iden, iden_targets.view(-1))
+        else:
+            loss = loss_function(tag_space, targets.view(-1)) + loss_function(tag_space_iden, iden_targets.view(-1))
         loss_all += loss.data[0]
     if debug:
         print "## Results for eval, sample 20"
@@ -180,12 +184,14 @@ def train_func(para_arr, args, data_sets, debug=False):
             #        gold_triggers = get_trigger(target_doc)#.data.numpy().tolist())
             #        print gold_triggers
 
-            loss = loss_function(tag_scores, targets.view(-1))
-            loss += loss_function(tag_scores_iden, iden_targets.view(-1))
+            if 1:
+                loss = loss_function(tag_scores, targets.view(-1)) + loss_function(tag_scores_iden, iden_targets.view(-1))
+            else:
+                loss = loss_function(tag_space, targets.view(-1)) + loss_function(tag_space_iden, iden_targets.view(-1))
             loss.backward()
             optimizer.step()
             training_id += sentence_in.size(0)
-            if args.batch_size>=1 and iteration % 100 == 0:
+            if args.batch_size>1 and iteration % 100 == 0:
                 print "## training id in batch", iteration, " is :", training_id, time.asctime()
 
         loss_train, prf_train, prf_train_iden = eval_model(train_loader, model, loss_function, "train", gpu)
