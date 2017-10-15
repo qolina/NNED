@@ -91,7 +91,7 @@ def loadTrainData2(filename):
     content = [line.strip().lower() for line in content if len(line.strip())>1]
     data = [(line.split("\t")[0].strip().split(), line.split("\t")[1].strip().split()) for line in content]
 
-    data = [item for item in data if len(item[0]) > 3 and len(item[0])<=100]
+    data = [item for item in data if len(item[0]) > 3 and len(item[0])<80]
     if len(data) != len(content): print "-- length new ori", len(data), len(content)
     for sent_id, sent_item in enumerate(data):
         if len(sent_item[0]) < 1 or len(sent_item[1]) < 1 or len(sent_item[0]) != len(sent_item[1]):
@@ -105,7 +105,7 @@ def loadTrainData(filename):
     content = open(filename, "r").readlines()
     content = [line.strip() for line in content if len(line.strip())>1]
     data = [(line.split("\t")[0].strip().split(), line.split("\t")[1].strip().split()) for line in content]
-    data = [([int(item) for item in sent], [int(item) for item in tag]) for sent, tag in data if len(sent) <= 100]
+    data = [([int(item) for item in sent], [int(item) for item in tag]) for sent, tag in data if len(sent) < 80]
     #data = [(sent, [0 if item == 0 else 1 for item in tag]) for sent, tag in data]
     if len(data) != len(content): print "-- length new ori", len(data), len(content)
     for sent_id, sent_item in enumerate(data):
@@ -322,6 +322,29 @@ def load_data2(args):
             print triggers
     return training_data, dev_data, test_data, pretrain_vocab, tags_data, pretrain_embedding, args.model
 
+# resize train dev test
+def resizeVocab(train_data, test_data, vocab, pretrain_embedding):
+    old_vocab_size = len(vocab)
+    word_counter = Counter()
+    for sent, _ in train_data + test_data:
+        word_counter += Counter(sent)
+    words_top = [word for word, word_num in word_counter.most_common() if word_num >= 2]
+    if old_vocab_size-1 not in words_top: words_top.append(old_vocab_size-1)
+    new_vocab_size = len(words_top)
+
+    words_change = {}
+    for i in range(old_vocab_size):
+        if i in words_top:
+            words_change[i] = len(words_change)
+    train_data = [([words_change[word] if word in words_top else new_vocab_size-1 for word in sent], tag) for sent, tag in train_data]
+    test_data = [([words_change[word] if word in words_top else new_vocab_size-1 for word in sent], tag) for sent, tag in test_data]
+    #print len(words_top)
+    words_del = [i for i in range(old_vocab_size) if i not in words_top]
+    pretrain_embedding = np.delete(pretrain_embedding, words_del, 0)
+    vocab = dict([(wstr, words_change[wid]) for wstr, wid in vocab.items() if wid in words_top])
+    return train_data, test_data, vocab, pretrain_embedding
+
+
 def load_data(args):
 # pretrain embedding: matrix (vocab_size, pretrain_embed_dim)
     pretrain_embedding = loadPretrain(args.pretrain_embed)
@@ -339,6 +362,8 @@ def load_data(args):
     print "## test loaded.", args.test, time.asctime()
     #test_data = check_data(test_data, vocab)
     #check_trigger_test(training_data, test_data)
+
+    training_data, test_data, vocab, pretrain_embedding = resizeVocab(training_data, test_data, vocab, pretrain_embedding)
 
 # tags_data: tag_name: tag_id
     tags_data = loadTag(args.tag)
@@ -359,7 +384,4 @@ def check_dataloader(dataloader):
             print "eval target doc", target_doc.numpy().tolist()
             gold_triggers = get_trigger(target_doc.numpy().tolist())
             print gold_triggers
-
-
-
 

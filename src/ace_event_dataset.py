@@ -9,8 +9,8 @@ class MyDataset_batch(torch_data.Dataset):
 
     def __getitem__(self, index): # return tensor
         sent, target = self.sents[index], self.labels[index]
-        sent_tensor = pad(torch.LongTensor(sent), 100)
-        target_tensor = pad(torch.LongTensor(target), 100)
+        sent_tensor = pad(torch.LongTensor(sent), 80)
+        target_tensor = pad(torch.LongTensor(target), 80)
         if 0:
             print len(sent), len(target)
             print sent_tensor.size(), target_tensor.size()

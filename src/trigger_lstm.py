@@ -29,7 +29,7 @@ import torch.utils.data as torch_data
 
 from ace_event_dataset import MyDataset_batch, MyDataset
 from lstm_trigger import LSTMTrigger
-torch.manual_seed(1)
+torch.manual_seed(1000)
 Tab = "\t"
 
 def prepare_sequence(seq, to_ix):
@@ -44,10 +44,11 @@ def tensor2var(eg_tensor):
     return autograd.Variable(eg_tensor, requires_grad=False)
 
 def eval_model(data_loader, model, loss_function, data_flag, gpu):
-    debug = True
+    debug = False
     loss_all = 0
     gold_results = []
     pred_results = []
+    pred_results_iden = []
     #for sent, tags, gold_triggers in data[:]:
     for iteration, batch in enumerate(data_loader):
         sentence_in, targets = batch
@@ -63,7 +64,9 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
         tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, gpu)
 
         _, tag_outputs = tag_scores.data.max(1)
+        _, tag_outputs_iden = tag_scores_iden.data.max(1)
         if gpu: tag_outputs = tag_outputs.cpu()
+        if gpu: tag_outputs_iden = tag_outputs_iden.cpu()
         if gpu: tag_scores = tag_scores.cpu()
         if gpu: tag_scores_iden = tag_scores_iden.cpu()
         if gpu: tag_space = tag_space.cpu()
@@ -79,10 +82,13 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
             pred_results.append(sys_triggers)
             #print " eval out doc", out_doc.numpy().tolist()
             #print sys_triggers
+        for out_doc in tag_outputs_iden.view(args.batch_size, -1):
+            sys_triggers = get_trigger(out_doc.numpy().tolist())
+            pred_results_iden.append(sys_triggers)
 
-        if 1:
+        if args.loss_flag == "nlloss":
             loss = loss_function(tag_scores, targets.view(-1)) + loss_function(tag_scores_iden, iden_targets.view(-1))
-        else:
+        elif args.loss_flag == "cross-entropy":
             loss = loss_function(tag_space, targets.view(-1)) + loss_function(tag_space_iden, iden_targets.view(-1))
         loss_all += loss.data[0]
     if debug:
@@ -92,7 +98,9 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
             print i, pred_results[i]
     prf = evalPRF(gold_results, pred_results, data_flag)
     prf_iden = evalPRF_iden(gold_results, pred_results)
+    #prf_iden2 = evalPRF_iden(gold_results, pred_results_iden)
     return loss_all, prf, prf_iden
+    #return loss_all, prf, (prf_iden, prf_iden2)
 
 def init_embedding(dim1, dim2):
     init_embedding = np.random.uniform(-0.01, 0.01, (dim1, dim2))
@@ -124,10 +132,13 @@ def train_func(para_arr, args, data_sets, debug=False):
         loss_function = nn.NLLLoss()
 
     parameters = filter(lambda a:a.requires_grad, model.parameters())
-    if args.opti_flag == "ada":
+    if args.opti_flag == "adadelta":
         optimizer = optim.Adadelta(parameters, lr=args.lr)
     elif args.opti_flag == "sgd":
-        optimizer = optim.SGD(model.parameters(), lr=args.lr)
+        #optimizer = optim.SGD(parameters, lr=args.lr, weight_decay=1e-4)
+        optimizer = optim.SGD(parameters, lr=args.lr)
+    elif args.opti_flag == "adam":
+        optimizer = optim.Adam(parameters, lr=args.lr)
 
     if 0:
        check_dataloader(train_loader)
@@ -184,9 +195,9 @@ def train_func(para_arr, args, data_sets, debug=False):
             #        gold_triggers = get_trigger(target_doc)#.data.numpy().tolist())
             #        print gold_triggers
 
-            if 1:
+            if args.loss_flag == "nlloss":
                 loss = loss_function(tag_scores, targets.view(-1)) + loss_function(tag_scores_iden, iden_targets.view(-1))
-            else:
+            elif args.loss_flag == "cross-entropy":
                 loss = loss_function(tag_space, targets.view(-1)) + loss_function(tag_space_iden, iden_targets.view(-1))
             loss.backward()
             optimizer.step()
@@ -199,6 +210,7 @@ def train_func(para_arr, args, data_sets, debug=False):
         outputPRF(prf_train)
         print "## Iden result:", 
         outputPRF(prf_train_iden)
+        #outputPRF(prf_train_iden[0]), outputPRF(prf_train_iden[1])
 
 # result on dev
         loss_dev, prf_dev, prf_dev_iden = eval_model(dev_loader, model, loss_function, "dev", gpu)
@@ -211,17 +223,21 @@ def train_func(para_arr, args, data_sets, debug=False):
         outputPRF(prf_dev)
         print "## Iden result:",
         outputPRF(prf_dev_iden)
+        #outputPRF(prf_dev_iden[0]), outputPRF(prf_dev_iden[1])
+
 # result on test
         if epoch >= 10 and epoch % 10 == 0:
             if epoch % 100 == 0:
                 model_test = torch.load(model_path)
                 loss_test, prf_test, prf_test_iden = eval_model(test_loader, model_test, loss_function, "test_final", gpu)
+                model_test = None
             else:
                 loss_test, prf_test, prf_test_iden = eval_model(test_loader, model, loss_function, "test", gpu)
             print "##-- test results on epoch", epoch, Tab, loss_test, time.asctime(), Tab,
             outputPRF(prf_test)
             print "## Iden result:",
             outputPRF(prf_test_iden)
+            #outputPRF(prf_test_iden[0]), outputPRF(prf_test_iden[1])
 
 # final result on test
     model = torch.load(model_path)
@@ -230,6 +246,7 @@ def train_func(para_arr, args, data_sets, debug=False):
     outputPRF(prf_test)
     print "## Iden result:",
     outputPRF(prf_test_iden)
+    #outputPRF(prf_test_iden[0]), outputPRF(prf_test_iden[1])
 
 if __name__ == "__main__":
     args = get_args()
@@ -256,7 +273,9 @@ if __name__ == "__main__":
     vocab_size = len(vocab)
     pretrain_vocab_size, pretrain_embed_dim = pretrain_embedding.shape
     tagset_size = len(tags_data)
+    print vocab_size, pretrain_vocab_size
 
+    #sys.exit(1)
     if 0:
         all_data = training_data+dev_data+test_data
         sent_lens = [len(item[0]) for item in all_data]
@@ -295,8 +314,8 @@ if __name__ == "__main__":
 
     #### Batch mode
     # max length = 297
-    train_sents = [item[0] for item in training_data]
-    train_labels = [item[1] for item in training_data]
+    train_sents = [item[0] for item in training_data] #[:2000]
+    train_labels = [item[1] for item in training_data]#[:2000]
     dev_sents = [item[0] for item in dev_data]
     dev_labels = [item[1] for item in dev_data]
     test_sents = [item[0] for item in test_data]
@@ -314,6 +333,8 @@ if __name__ == "__main__":
     train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
     dev_loader = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
     test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
+    #dev_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
+    #test_loader = None
     data_sets = train_loader, dev_loader, test_loader, pretrain_embedding
 
     #check_dataloader(train_loader)

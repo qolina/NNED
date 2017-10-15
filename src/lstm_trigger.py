@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 
-torch.manual_seed(1)
+torch.manual_seed(1000)
 
 class LSTMTrigger(nn.Module):
     def __init__(self, model_params, args):
@@ -38,7 +38,8 @@ class LSTMTrigger(nn.Module):
         if self.bilstm_flag: self.hidden_dim_fst *= 2
         if self.use_conv: self.hidden_dim_fst += self.out_channels*2
 
-        if args.hidden_dim_snd == 0: self.hidden_dim_snd = self.hidden_dim_fst
+        if args.hidden_dim_snd == -1: self.hidden_dim_snd = -1  # we do not use hidden linear layer
+        elif args.hidden_dim_snd == 0: self.hidden_dim_snd = self.hidden_dim_fst
         else: self.hidden_dim_snd = args.hidden_dim_snd
 
         if random_dim >= 50: # use (append) random embedding
@@ -63,9 +64,13 @@ class LSTMTrigger(nn.Module):
                 self.maxp2 = nn.MaxPool1d(self.position_size-self.kernal_size2+1)
         self.drop = nn.Dropout(args.dropout)
         self.lstm = nn.LSTM(embedding_dim, self.lstm_hidden_dim, num_layers=self.lstm_layer, bidirectional=self.bilstm_flag)
-        self.fst_hidden = nn.Linear(self.hidden_dim_fst, self.hidden_dim_snd)
-        self.hidden2tag = nn.Linear(self.hidden_dim_snd, tagset_size)
-        self.hidden2tag_iden = nn.Linear(self.hidden_dim_snd, 2)
+        if self.hidden_dim_snd != -1: # if hidden_dim_snd == -1, we do not use this layer
+            self.fst_hidden = nn.Linear(self.hidden_dim_fst, self.hidden_dim_snd)
+            self.hidden2tag = nn.Linear(self.hidden_dim_snd, tagset_size)
+            self.hidden2tag_iden = nn.Linear(self.hidden_dim_snd, 2)
+        else:
+            self.hidden2tag = nn.Linear(self.hidden_dim_fst, tagset_size)
+            self.hidden2tag_iden = nn.Linear(self.hidden_dim_fst, 2)
 
         if gpu:
             self.drop = self.drop.cuda()
@@ -74,7 +79,7 @@ class LSTMTrigger(nn.Module):
             self.lstm = self.lstm.cuda()
             if self.use_conv: self.conv1 = self.conv1.cuda()
             if self.use_conv: self.conv2 = self.conv2.cuda()
-            self.fst_hidden = self.fst_hidden.cuda()
+            if self.hidden_dim_snd != -1: self.fst_hidden = self.fst_hidden.cuda()
             self.hidden2tag = self.hidden2tag.cuda()
             self.hidden2tag_iden = self.hidden2tag_iden.cuda()
 
@@ -226,11 +231,14 @@ class LSTMTrigger(nn.Module):
             print hidden_in
             print hidden_in.view(self.batch_size*sent_length, -1).data
 
-        hidden_snd = self.fst_hidden(hidden_in.view(self.batch_size*sent_length, -1))
-        hidden_snd = F.relu(hidden_snd)
-        tag_space = self.hidden2tag(hidden_snd)
+        if self.hidden_dim_snd != -1: 
+            hidden_snd = self.fst_hidden(hidden_in.view(self.batch_size*sent_length, -1))
+            hidden_snd = F.relu(hidden_snd)
+            tag_space = self.hidden2tag(hidden_snd)
+            tag_space_iden = self.hidden2tag_iden(hidden_snd)
+        else:
+            tag_space = self.hidden2tag(hidden_in.view(self.batch_size*sent_length, -1))
+            tag_space_iden = self.hidden2tag_iden(hidden_in.view(self.batch_size*sent_length, -1))
         tag_scores = F.log_softmax(tag_space)
-        #tag_scores = F.softmax(tag_space)
-        tag_space_iden = self.hidden2tag_iden(hidden_snd)
-        tag_scores_iden = F.softmax(tag_space_iden)
+        tag_scores_iden = F.log_softmax(tag_space_iden)
         return tag_space, tag_scores, tag_space_iden, tag_scores_iden

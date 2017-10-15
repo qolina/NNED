@@ -14,16 +14,16 @@ def get_args():
     parser.add_argument('--no_cuda', action='store_false', help='do not use CUDA', dest='gpu')
     #parser.add_argument('--gpu_core', type=int, default=0, help='GPU device to use') # use -1 for CPU
     parser.add_argument('--dropout', type=float, default=0.5)
-    parser.add_argument('--num_layers', type=int, default=2)
+    parser.add_argument('--num_layers', type=int, default=1)
     parser.add_argument('--lr', type=float, default=3e-2)
     parser.add_argument('--embed_dim', type=int, default=100)
     parser.add_argument('--hidden_dim', type=int, default=100)
     parser.add_argument('--conv_width1', type=int, default=2)
     parser.add_argument('--conv_width2', type=int, default=3)
     parser.add_argument('--conv_filter_num', type=int, default=100)
-    parser.add_argument('--hidden_dim_snd', type=int, default=300)
+    parser.add_argument('--hidden_dim_snd', type=int, default=-1)
     parser.add_argument('--loss_flag', type=str, default='cross-entropy') # or use 'nlloss'
-    parser.add_argument('--opti_flag', type=str, default='ada') # or use 'sgd'
+    parser.add_argument('--opti_flag', type=str, default='sgd') # or use 'adadelta', 'adam', 'sgd'
 
     parser.add_argument('-train', type=str, default='', help="train file path")
     parser.add_argument('-dev', type=str, default='', help="dev file path")
