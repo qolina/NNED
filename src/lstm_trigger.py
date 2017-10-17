@@ -5,6 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+from ace_event_dataset import pad_batch
 
 torch.manual_seed(1000)
 
@@ -64,11 +66,11 @@ class LSTMTrigger(nn.Module):
                 self.maxp2 = nn.MaxPool1d(self.position_size-self.kernal_size2+1)
         self.drop = nn.Dropout(args.dropout)
         self.lstm = nn.LSTM(embedding_dim, self.lstm_hidden_dim, num_layers=self.lstm_layer, bidirectional=self.bilstm_flag)
-        if self.hidden_dim_snd != -1: # if hidden_dim_snd == -1, we do not use this layer
+        if self.hidden_dim_snd != -1:
             self.fst_hidden = nn.Linear(self.hidden_dim_fst, self.hidden_dim_snd)
             self.hidden2tag = nn.Linear(self.hidden_dim_snd, tagset_size)
             self.hidden2tag_iden = nn.Linear(self.hidden_dim_snd, 2)
-        else:
+        else: # if hidden_dim_snd == -1, we do not use this linear layer
             self.hidden2tag = nn.Linear(self.hidden_dim_fst, tagset_size)
             self.hidden2tag_iden = nn.Linear(self.hidden_dim_fst, 2)
 
@@ -121,12 +123,10 @@ class LSTMTrigger(nn.Module):
         return positions
         
     # batch shape: (batch_size, sent_length)
-    def forward(self, batch, gpu, debug=False):
-        # already done init_hidden in training each instance
-        #self.hidden = self.init_hidden(gpu)
+    def forward(self, batch, batch_sent_lens, gpu, debug=False):
 
         debug = False
-        sent_length = batch.size()[1]
+        sent_length = max(batch_sent_lens.numpy())
         positions = self.position_fea_in_sent(sent_length)
         embeds = self.word_embeddings(batch) # size: batch_size*sent_length*word_embed_size
         if debug:
@@ -213,32 +213,39 @@ class LSTMTrigger(nn.Module):
         #    print "## sent embeds to feed lstm", embeds_temp.data.size(), torch.sum(embeds_temp.data)
         #    print embeds_temp
 
+        embeds = embeds.transpose(0, 1)
+        embeds_pack = pack_padded_sequence(embeds, batch_sent_lens.numpy())
         self.lstm.flatten_parameters()
         lstm_out, self.hidden = self.lstm(
-                embeds.transpose(0, 1), self.hidden)
+                embeds_pack, self.hidden)
                 #embeds.view(self.batch_size, sent_length, -1).transpose(0, 1), self.hidden)
         # lstm_out: sent_length * batch_size * hidden_dim
         if debug:
             print "## lstm out:", lstm_out.size(), type(lstm_out.data)
             print lstm_out.data#[:10, :10]
-        hidden_in = lstm_out
+        #print lstm_out
+        #print pad_packed_sequence(lstm_out)
+        hidden_in, _ = pad_packed_sequence(lstm_out)
         if self.use_conv:
             hidden_in = torch.cat((lstm_out, c1_embed, c2_embed), -1)
 
         hidden_in = hidden_in.transpose(0, 1).contiguous() # batch_size * sent_length * hidden_dim
+        hidden_in = hidden_in.view(self.batch_size*sent_length, -1)
         if debug:
             print "## hidden in:", hidden_in.data.size(), type(hidden_in.data), hidden_in.view(self.batch_size*sent_length, -1).size()
             print hidden_in
             print hidden_in.view(self.batch_size*sent_length, -1).data
 
         if self.hidden_dim_snd != -1: 
-            hidden_snd = self.fst_hidden(hidden_in.view(self.batch_size*sent_length, -1))
+            hidden_snd = self.fst_hidden(hidden_in)
             hidden_snd = F.relu(hidden_snd)
             tag_space = self.hidden2tag(hidden_snd)
             tag_space_iden = self.hidden2tag_iden(hidden_snd)
         else:
-            tag_space = self.hidden2tag(hidden_in.view(self.batch_size*sent_length, -1))
-            tag_space_iden = self.hidden2tag_iden(hidden_in.view(self.batch_size*sent_length, -1))
+            #print self.hidden2tag
+            #print self.hidden2tag_iden
+            tag_space = self.hidden2tag(hidden_in)
+            tag_space_iden = self.hidden2tag_iden(hidden_in)
         tag_scores = F.log_softmax(tag_space)
         tag_scores_iden = F.log_softmax(tag_space_iden)
         return tag_space, tag_scores, tag_space_iden, tag_scores_iden

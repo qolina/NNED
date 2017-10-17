@@ -4,6 +4,7 @@ import numpy as np
 import random
 import time
 import torch
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 Tab = "\t"
 
@@ -344,6 +345,13 @@ def resizeVocab(train_data, test_data, vocab, pretrain_embedding):
     vocab = dict([(wstr, words_change[wid]) for wstr, wid in vocab.items() if wid in words_top])
     return train_data, test_data, vocab, pretrain_embedding
 
+def sort_data(dataset):
+    sent_length = [(sent_id, len(item[0])) for sent_id, item in enumerate(dataset)]
+    sorted_sent_length = sorted(sent_length, key = lambda a:a[1], reverse=True)
+    new_dataset = []
+    for item in sorted_sent_length:
+        new_dataset.append(dataset[item[0]])
+    return new_dataset
 
 def load_data(args):
 # pretrain embedding: matrix (vocab_size, pretrain_embed_dim)
@@ -378,8 +386,16 @@ def load_data(args):
 # test of dataloader
 def check_dataloader(dataloader):
     for iteration, batch in enumerate(dataloader):
-        if iteration > 10: break
-        sentence_in, targets = batch # tensors
+        sentence_in, targets, batch_sent_lens = batch # tensors, tensors, arr
+        batch_sent_lens, sorted_lens_idx = batch_sent_lens.sort(dim=0, descending=True)
+        sentence_in = sentence_in[sorted_lens_idx]
+        print batch_sent_lens.size(), len(batch_sent_lens.numpy())
+        print sentence_in.size()
+        print sentence_in
+        print batch_sent_lens.numpy()
+        sentence_in_pack = pack_padded_sequence(sentence_in, batch_sent_lens.numpy(), batch_first=True)
+
+        continue
         for target_doc in targets:
             print "eval target doc", target_doc.numpy().tolist()
             gold_triggers = get_trigger(target_doc.numpy().tolist())

@@ -13,7 +13,7 @@ from util import outputPRF, outputParameters
 from util import output_normal_pretrain, output_dynet_format
 from util import check_dataloader
 from util import get_trigger, evalPRF, evalPRF_iden
-from util import load_data, load_data2
+from util import load_data, load_data2, sort_data
 from args import get_args
 
 import numpy as np
@@ -26,6 +26,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data as torch_data
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from ace_event_dataset import MyDataset_batch, MyDataset
 from lstm_trigger import LSTMTrigger
@@ -51,17 +52,26 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
     pred_results_iden = []
     #for sent, tags, gold_triggers in data[:]:
     for iteration, batch in enumerate(data_loader):
-        sentence_in, targets = batch
+        sentence_in, targets, batch_sent_lens = batch
+        batch_sent_lens, sorted_lens_idx = batch_sent_lens.sort(dim=0, descending=True)
+        sentence_in = sentence_in[sorted_lens_idx]
+        targets = targets[sorted_lens_idx]
+
         iden_targets = torch.gt(targets, torch.zeros(targets.size()).type_as(targets)) 
 
         sentence_in = tensor2var(sentence_in)
         targets = tensor2var(targets)
         iden_targets = tensor2var(iden_targets).type_as(targets)
 
+        targets_pack = pack_padded_sequence(targets, batch_sent_lens.numpy(), batch_first=True)
+        targets, _ = pad_packed_sequence(targets_pack)
+        iden_targets_pack = pack_padded_sequence(iden_targets, batch_sent_lens.numpy(), batch_first=True)
+        iden_targets, _ = pad_packed_sequence(iden_targets_pack)
+
         if gpu:
             sentence_in = sentence_in.cuda()
 
-        tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, gpu)
+        tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu)
 
         _, tag_outputs = tag_scores.data.max(1)
         _, tag_outputs_iden = tag_scores_iden.data.max(1)
@@ -124,6 +134,10 @@ def train_func(para_arr, args, data_sets, debug=False):
 
     model_params_to_feed = [vocab_size, tagset_size, embedding_dim, random_dim, pretrain_embedding]
 
+    if 0:
+       check_dataloader(train_loader)
+       return
+
     model = LSTMTrigger(model_params_to_feed, args)
 
     if args.loss_flag == "cross-entropy":
@@ -140,9 +154,6 @@ def train_func(para_arr, args, data_sets, debug=False):
     elif args.opti_flag == "adam":
         optimizer = optim.Adam(parameters, lr=args.lr)
 
-    if 0:
-       check_dataloader(train_loader)
-       #return
 # training
     best_f1 = -1.0
     for epoch in range(args.epoch_num):
@@ -151,7 +162,11 @@ def train_func(para_arr, args, data_sets, debug=False):
         for iteration, batch in enumerate(train_loader):
             model.zero_grad()
             model.hidden = model.init_hidden(gpu)
-            sentence_in, targets = batch
+            sentence_in, targets, batch_sent_lens = batch
+            batch_sent_lens, sorted_lens_idx = batch_sent_lens.sort(dim=0, descending=True)
+            sentence_in = sentence_in[sorted_lens_idx]
+            targets = targets[sorted_lens_idx]
+
             #print iteration, targets.numpy().tolist()
             iden_targets = torch.gt(targets, torch.zeros(targets.size()).type_as(targets)) 
             #print "--", targets.numpy().tolist()
@@ -170,15 +185,21 @@ def train_func(para_arr, args, data_sets, debug=False):
             #    print "----------- iden targets", iden_targets.size()
             #    #print iden_targets
 
+            #print sentence_in, targets, batch_sent_lens
+            #continue
             sentence_in = tensor2var(sentence_in)
             targets = tensor2var(targets)
             iden_targets = tensor2var(iden_targets).type_as(targets)
+            targets_pack = pack_padded_sequence(targets, batch_sent_lens.numpy(), batch_first=True)
+            targets, _ = pad_packed_sequence(targets_pack)
+            iden_targets_pack = pack_padded_sequence(iden_targets, batch_sent_lens.numpy(), batch_first=True)
+            iden_targets, _ = pad_packed_sequence(iden_targets_pack)
             if gpu:
                 sentence_in = sentence_in.cuda()
                 targets = targets.cuda()
                 iden_targets = iden_targets.cuda()
 
-            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, gpu, debug)
+            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, debug)
             #if debug:
                 #print "##size of tag_scores, targets, tag_scores_iden, iden_targets", tag_scores.size(), targets.view(-1).size(), tag_scores_iden.size(), iden_targets.view(-1).size()
                 #print "##data of tag_scores, targets, tag_scores_iden, iden_targets"
@@ -312,6 +333,10 @@ if __name__ == "__main__":
     #test_data = [(item[0], item[1], get_trigger(item[1])) for item in test_data]
     #data_sets = training_data, dev_data, test_data, pretrain_embedding
 
+    training_data = sort_data(training_data)
+    dev_data = sort_data(dev_data)
+    test_data = sort_data(test_data)
+
     #### Batch mode
     # max length = 297
     train_sents = [item[0] for item in training_data] #[:2000]
@@ -320,6 +345,10 @@ if __name__ == "__main__":
     dev_labels = [item[1] for item in dev_data]
     test_sents = [item[0] for item in test_data]
     test_labels = [item[1] for item in test_data]
+
+    #print [len(item) for item in train_sents]
+    #print [len(item) for item in dev_sents]
+    #print [len(item) for item in test_sents]
 
     if args.batch_size > 1:
         train_dataset = MyDataset_batch(train_sents, train_labels)
@@ -336,9 +365,6 @@ if __name__ == "__main__":
     #dev_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
     #test_loader = None
     data_sets = train_loader, dev_loader, test_loader, pretrain_embedding
-
-    #check_dataloader(train_loader)
-    #sys.exit(1)
 
     # begin to train
     train_func(para_arr, args, data_sets)
