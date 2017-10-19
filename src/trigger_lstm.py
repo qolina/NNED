@@ -14,6 +14,7 @@ from util import output_normal_pretrain, output_dynet_format
 from util import check_dataloader
 from util import get_trigger, evalPRF, evalPRF_iden
 from util import load_data, load_data2, sort_data
+from util import pad_batch
 from args import get_args
 
 import numpy as np
@@ -33,11 +34,6 @@ from lstm_trigger import LSTMTrigger
 torch.manual_seed(1000)
 Tab = "\t"
 
-def prepare_sequence(seq, to_ix):
-    idxs = [to_ix[w] if w in to_ix else len(to_ix)-1 for w in seq]
-    tensor = autograd.Variable(torch.LongTensor(idxs), requires_grad=False)
-    return tensor
-
 def arr2tensor(arr):
     return torch.LongTensor(arr)
 
@@ -50,23 +46,13 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
     gold_results = []
     pred_results = []
     pred_results_iden = []
-    #for sent, tags, gold_triggers in data[:]:
     for iteration, batch in enumerate(data_loader):
         sentence_in, targets, batch_sent_lens = batch
-        batch_sent_lens, sorted_lens_idx = batch_sent_lens.sort(dim=0, descending=True)
-        sentence_in = sentence_in[sorted_lens_idx]
-        targets = targets[sorted_lens_idx]
-
         iden_targets = torch.gt(targets, torch.zeros(targets.size()).type_as(targets)) 
 
         sentence_in = tensor2var(sentence_in)
         targets = tensor2var(targets)
         iden_targets = tensor2var(iden_targets).type_as(targets)
-
-        targets_pack = pack_padded_sequence(targets, batch_sent_lens.numpy(), batch_first=True)
-        targets, _ = pad_packed_sequence(targets_pack)
-        iden_targets_pack = pack_padded_sequence(iden_targets, batch_sent_lens.numpy(), batch_first=True)
-        iden_targets, _ = pad_packed_sequence(iden_targets_pack)
 
         if gpu:
             sentence_in = sentence_in.cuda()
@@ -75,12 +61,13 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
 
         _, tag_outputs = tag_scores.data.max(1)
         _, tag_outputs_iden = tag_scores_iden.data.max(1)
-        if gpu: tag_outputs = tag_outputs.cpu()
-        if gpu: tag_outputs_iden = tag_outputs_iden.cpu()
-        if gpu: tag_scores = tag_scores.cpu()
-        if gpu: tag_scores_iden = tag_scores_iden.cpu()
-        if gpu: tag_space = tag_space.cpu()
-        if gpu: tag_space_iden = tag_space_iden.cpu()
+        if gpu: 
+            tag_outputs = tag_outputs.cpu()
+            tag_outputs_iden = tag_outputs_iden.cpu()
+            tag_scores = tag_scores.cpu()
+            tag_scores_iden = tag_scores_iden.cpu()
+            tag_space = tag_space.cpu()
+            tag_space_iden = tag_space_iden.cpu()
 
         for target_doc in targets:
             gold_triggers = get_trigger(target_doc.data.numpy().tolist())
@@ -163,9 +150,6 @@ def train_func(para_arr, args, data_sets, debug=False):
             model.zero_grad()
             model.hidden = model.init_hidden(gpu)
             sentence_in, targets, batch_sent_lens = batch
-            batch_sent_lens, sorted_lens_idx = batch_sent_lens.sort(dim=0, descending=True)
-            sentence_in = sentence_in[sorted_lens_idx]
-            targets = targets[sorted_lens_idx]
 
             #print iteration, targets.numpy().tolist()
             iden_targets = torch.gt(targets, torch.zeros(targets.size()).type_as(targets)) 
@@ -190,10 +174,7 @@ def train_func(para_arr, args, data_sets, debug=False):
             sentence_in = tensor2var(sentence_in)
             targets = tensor2var(targets)
             iden_targets = tensor2var(iden_targets).type_as(targets)
-            targets_pack = pack_padded_sequence(targets, batch_sent_lens.numpy(), batch_first=True)
-            targets, _ = pad_packed_sequence(targets_pack)
-            iden_targets_pack = pack_padded_sequence(iden_targets, batch_sent_lens.numpy(), batch_first=True)
-            iden_targets, _ = pad_packed_sequence(iden_targets_pack)
+
             if gpu:
                 sentence_in = sentence_in.cuda()
                 targets = targets.cuda()
@@ -294,9 +275,7 @@ if __name__ == "__main__":
     vocab_size = len(vocab)
     pretrain_vocab_size, pretrain_embed_dim = pretrain_embedding.shape
     tagset_size = len(tags_data)
-    print vocab_size, pretrain_vocab_size
 
-    #sys.exit(1)
     if 0:
         all_data = training_data+dev_data+test_data
         sent_lens = [len(item[0]) for item in all_data]
@@ -308,7 +287,6 @@ if __name__ == "__main__":
         output_dynet_format(dev_data, vocab, tags_data, "../ni_data/f.ace_trigger.dev")
         output_dynet_format(test_data, vocab, tags_data, "../ni_data/f.ace_trigger.test")
         sys.exit(0)
-
 
     #######################
     ## store and output all parameters
@@ -327,41 +305,13 @@ if __name__ == "__main__":
     #######################
     # dataset prepare
 
-    #### Non_batch mode
-    #training_data = [(item[0], item[1], get_trigger(item[1])) for item in training_data]
-    #dev_data = [(item[0], item[1], get_trigger(item[1])) for item in dev_data]
-    #test_data = [(item[0], item[1], get_trigger(item[1])) for item in test_data]
-    #data_sets = training_data, dev_data, test_data, pretrain_embedding
-
-    training_data = sort_data(training_data)
-    dev_data = sort_data(dev_data)
-    test_data = sort_data(test_data)
-
     #### Batch mode
-    # max length = 297
-    train_sents = [item[0] for item in training_data] #[:2000]
-    train_labels = [item[1] for item in training_data]#[:2000]
-    dev_sents = [item[0] for item in dev_data]
-    dev_labels = [item[1] for item in dev_data]
-    test_sents = [item[0] for item in test_data]
-    test_labels = [item[1] for item in test_data]
-
-    #print [len(item) for item in train_sents]
-    #print [len(item) for item in dev_sents]
-    #print [len(item) for item in test_sents]
-
-    if args.batch_size > 1:
-        train_dataset = MyDataset_batch(train_sents, train_labels)
-        dev_dataset = MyDataset_batch(dev_sents, dev_labels)
-        test_dataset = MyDataset_batch(test_sents, test_labels)
-    else:
-        train_dataset = MyDataset(train_sents, train_labels)
-        dev_dataset = MyDataset(dev_sents, dev_labels)
-        test_dataset = MyDataset(test_sents, test_labels)
-        #print train_dataset.__getitem__(8)
-    train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
-    dev_loader = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
-    test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
+    train_dataset = MyDataset(training_data)
+    dev_dataset = MyDataset(dev_data)
+    test_dataset = MyDataset(test_data)
+    train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True, collate_fn=pad_batch)
+    dev_loader = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True, collate_fn=pad_batch)
+    test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True, collate_fn=pad_batch)
     #dev_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
     #test_loader = None
     data_sets = train_loader, dev_loader, test_loader, pretrain_embedding

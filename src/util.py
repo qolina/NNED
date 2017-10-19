@@ -401,3 +401,28 @@ def check_dataloader(dataloader):
             gold_triggers = get_trigger(target_doc.numpy().tolist())
             print gold_triggers
 
+# input: [(sent, target), ...]
+def pad_batch(batch):
+    sentences_in = [item[0] for item in batch]
+    targets = [item[1] for item in batch]
+
+    # sort in decreasing order
+    sentences_in.sort(key=lambda s: -1 * len(s))
+    targets.sort(key=lambda s: -1 * len(s))
+
+    lens = np.array([len(s) for s in sentences_in], dtype=np.int64)
+    max_len =max(lens)
+    batch_size = len(sentences_in)
+
+    #make batch
+    sentences_in_batch = np.zeros((batch_size, max_len), dtype=np.int64)
+    targets_in_batch = np.zeros((batch_size, max_len), dtype=np.int64)
+
+    for i in range(batch_size):
+        sent = sentences_in[i]
+        target = targets[i]
+        l = len(sent)
+        sentences_in_batch[i, :l] = sent
+        targets_in_batch[i, :l] = target
+    
+    return torch.from_numpy(sentences_in_batch), torch.from_numpy(targets_in_batch), torch.from_numpy(lens)

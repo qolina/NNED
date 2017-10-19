@@ -1,4 +1,4 @@
-
+## This file consists of utility functions to read/process ACE raw data
 
 # event = [sentence_ldc_scope, eventType, eventSubType, anchor, (arg, role), (arg, role), ...]
 # eventString: sentence[sep]eventType[sep]eventSubType[sep]anchor[sep]arg[sep]role[sep]arg[sep]role......

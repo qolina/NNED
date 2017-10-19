@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from ace_event_dataset import pad_batch
+from ace_event_dataset import pad_batch_tensor
 
 torch.manual_seed(1000)
 
@@ -124,9 +124,11 @@ class LSTMTrigger(nn.Module):
         
     # batch shape: (batch_size, sent_length)
     def forward(self, batch, batch_sent_lens, gpu, debug=False):
-
         debug = False
-        sent_length = max(batch_sent_lens.numpy())
+
+        sent_length = batch.size(1)
+        #sent_length = max(batch_sent_lens.numpy())
+
         positions = self.position_fea_in_sent(sent_length)
         embeds = self.word_embeddings(batch) # size: batch_size*sent_length*word_embed_size
         if debug:
@@ -217,14 +219,14 @@ class LSTMTrigger(nn.Module):
         embeds_pack = pack_padded_sequence(embeds, batch_sent_lens.numpy())
         self.lstm.flatten_parameters()
         lstm_out, self.hidden = self.lstm(
+                #embeds, self.hidden)
                 embeds_pack, self.hidden)
-                #embeds.view(self.batch_size, sent_length, -1).transpose(0, 1), self.hidden)
         # lstm_out: sent_length * batch_size * hidden_dim
         if debug:
             print "## lstm out:", lstm_out.size(), type(lstm_out.data)
             print lstm_out.data#[:10, :10]
         #print lstm_out
-        #print pad_packed_sequence(lstm_out)
+        hidden_in = lstm_out
         hidden_in, _ = pad_packed_sequence(lstm_out)
         if self.use_conv:
             hidden_in = torch.cat((lstm_out, c1_embed, c2_embed), -1)
