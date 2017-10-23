@@ -29,7 +29,7 @@ import torch.optim as optim
 import torch.utils.data as torch_data
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from ace_event_dataset import MyDataset_batch, MyDataset
+from ace_event_dataset import MyDataset
 from lstm_trigger import LSTMTrigger
 torch.manual_seed(1000)
 Tab = "\t"
@@ -57,7 +57,7 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
         if gpu:
             sentence_in = sentence_in.cuda()
 
-        tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu)
+        tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, is_test_flag=True)
 
         _, tag_outputs = tag_scores.data.max(1)
         _, tag_outputs_iden = tag_scores_iden.data.max(1)
@@ -136,8 +136,8 @@ def train_func(para_arr, args, data_sets, debug=False):
     if args.opti_flag == "adadelta":
         optimizer = optim.Adadelta(parameters, lr=args.lr)
     elif args.opti_flag == "sgd":
-        #optimizer = optim.SGD(parameters, lr=args.lr, weight_decay=1e-4)
-        optimizer = optim.SGD(parameters, lr=args.lr)
+        optimizer = optim.SGD(parameters, lr=args.lr, weight_decay=1e-4)
+        #optimizer = optim.SGD(parameters, lr=args.lr)
     elif args.opti_flag == "adam":
         optimizer = optim.Adam(parameters, lr=args.lr)
 
@@ -225,10 +225,11 @@ def train_func(para_arr, args, data_sets, debug=False):
         outputPRF(prf_dev)
         print "## Iden result:",
         outputPRF(prf_dev_iden)
+        if best_f1 == 100.0: break
         #outputPRF(prf_dev_iden[0]), outputPRF(prf_dev_iden[1])
 
 # result on test
-        if epoch >= 10 and epoch % 10 == 0:
+        if epoch >= 2 and epoch % 10 == 0:
             if epoch % 100 == 0:
                 model_test = torch.load(model_path)
                 loss_test, prf_test, prf_test_iden = eval_model(test_loader, model_test, loss_function, "test_final", gpu)
@@ -306,13 +307,26 @@ if __name__ == "__main__":
     # dataset prepare
 
     #### Batch mode
-    train_dataset = MyDataset(training_data)
-    dev_dataset = MyDataset(dev_data)
-    test_dataset = MyDataset(test_data)
-    train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True, collate_fn=pad_batch)
-    dev_loader = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True, collate_fn=pad_batch)
-    test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True, collate_fn=pad_batch)
-    #dev_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, drop_last=True)
+    if args.batch_size == 1:
+        (train_use_tensor, train_use_pad, test_use_tensor, test_use_pad) = (True, False, True, False)
+    else:
+        (train_use_tensor, train_use_pad, test_use_tensor, test_use_pad) = (False, False, False, False)
+
+    train_dataset = MyDataset(training_data, use_tensor=train_use_tensor, use_pad=train_use_pad)
+    dev_dataset = MyDataset(dev_data, use_tensor=test_use_tensor, use_pad=test_use_pad)
+    test_dataset = MyDataset(test_data, use_tensor=test_use_tensor, use_pad=test_use_pad)
+    if train_use_tensor:
+        train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train)
+    else:
+        train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, collate_fn=pad_batch)
+    if test_use_tensor:
+        dev_loader  = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size)
+        test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size)
+    else:
+        dev_loader  = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size, collate_fn=pad_batch)
+        test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=pad_batch)
+
+    #dev_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size)
     #test_loader = None
     data_sets = train_loader, dev_loader, test_loader, pretrain_embedding
 

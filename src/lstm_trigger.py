@@ -6,7 +6,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-from ace_event_dataset import pad_batch_tensor
 
 torch.manual_seed(1000)
 
@@ -123,12 +122,15 @@ class LSTMTrigger(nn.Module):
         return positions
         
     # batch shape: (batch_size, sent_length)
-    def forward(self, batch, batch_sent_lens, gpu, debug=False):
+    def forward(self, batch, batch_sent_lens, gpu, debug=False, use_mask=True, is_test_flag=False):
         debug = False
+        use_mask = False
+        if use_mask:
+            sent_length = max(batch_sent_lens.numpy())
+        else:
+            sent_length = batch.size(1)
 
-        sent_length = batch.size(1)
-        #sent_length = max(batch_sent_lens.numpy())
-
+        print "## sent lens", sent_length
         positions = self.position_fea_in_sent(sent_length)
         embeds = self.word_embeddings(batch) # size: batch_size*sent_length*word_embed_size
         if debug:
@@ -151,7 +153,7 @@ class LSTMTrigger(nn.Module):
         if self.random_embed:
             pretrain_embeds = self.pretrain_word_embeddings(batch)
             embeds = torch.cat((pretrain_embeds, embeds), -1)
-        embeds = self.drop(embeds)
+        if not is_test_flag: embeds = self.drop(embeds)
         if debug:
             print "## sent embeds aft drop", embeds.data.size(), torch.sum(embeds.data)
             print embeds
@@ -167,7 +169,6 @@ class LSTMTrigger(nn.Module):
             for word_id, position in enumerate(positions):
                 if debug and word_id == 0:
                     print "## -------------- word_id", word_id
-                    #print position.data.view(1, -1)
                 if gpu: position = position.cuda()
                 pos_embeds = self.position_embeddings(position)
                 comb_embeds = torch.cat((embeds, pos_embeds), -1)
@@ -187,11 +188,6 @@ class LSTMTrigger(nn.Module):
                 p1 = self.maxp1(c1) # batch_size * out_channels * 1
                 c2 = self.conv2(inputs)
                 p2 = self.maxp2(c2)
-                #if debug and word_id == 0:
-                #    print "## c1:", type(c1.data), c1.data.size()
-                #    print "## p1:", type(p1.data), p1.data.size()
-                #    print "## c2:", type(c2.data), c2.data.size()
-                #    print "## p2:", type(p2.data), p2.data.size()
 
                 c1_embed_temp = self.cnnformat2lstm(p1)
                 c2_embed_temp = self.cnnformat2lstm(p2)
@@ -210,26 +206,19 @@ class LSTMTrigger(nn.Module):
             #    print "## c2_embed:", type(c2_embed.data), c2_embed.data.size()
             #    #print c2_embed.data[:5, :5]
 
-        #embeds_temp = embeds.view(self.batch_size, sent_length, -1).transpose(0, 1)
-        #if debug:
-        #    print "## sent embeds to feed lstm", embeds_temp.data.size(), torch.sum(embeds_temp.data)
-        #    print embeds_temp
-
-        embeds = embeds.transpose(0, 1)
-        embeds_pack = pack_padded_sequence(embeds, batch_sent_lens.numpy())
-        self.lstm.flatten_parameters()
-        lstm_out, self.hidden = self.lstm(
-                #embeds, self.hidden)
-                embeds_pack, self.hidden)
+        #self.lstm.flatten_parameters()
         # lstm_out: sent_length * batch_size * hidden_dim
-        if debug:
-            print "## lstm out:", lstm_out.size(), type(lstm_out.data)
-            print lstm_out.data#[:10, :10]
-        #print lstm_out
-        hidden_in = lstm_out
-        hidden_in, _ = pad_packed_sequence(lstm_out)
+        embeds = embeds.transpose(0, 1)
+        if not use_mask:
+            lstm_out, self.hidden = self.lstm(embeds, self.hidden)
+            hidden_in = lstm_out
+        else:
+            embeds_pack = pack_padded_sequence(embeds, batch_sent_lens.numpy())
+            lstm_out, self.hidden = self.lstm(embeds_pack, self.hidden)
+            hidden_in, _ = pad_packed_sequence(lstm_out)
+
         if self.use_conv:
-            hidden_in = torch.cat((lstm_out, c1_embed, c2_embed), -1)
+            hidden_in = torch.cat((hidden_in, c1_embed, c2_embed), -1)
 
         hidden_in = hidden_in.transpose(0, 1).contiguous() # batch_size * sent_length * hidden_dim
         hidden_in = hidden_in.view(self.batch_size*sent_length, -1)
@@ -244,8 +233,6 @@ class LSTMTrigger(nn.Module):
             tag_space = self.hidden2tag(hidden_snd)
             tag_space_iden = self.hidden2tag_iden(hidden_snd)
         else:
-            #print self.hidden2tag
-            #print self.hidden2tag_iden
             tag_space = self.hidden2tag(hidden_in)
             tag_space_iden = self.hidden2tag_iden(hidden_in)
         tag_scores = F.log_softmax(tag_space)

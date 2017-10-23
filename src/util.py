@@ -402,7 +402,7 @@ def check_dataloader(dataloader):
             print gold_triggers
 
 # input: [(sent, target), ...]
-def pad_batch(batch):
+def pad_batch(batch, max_len=80):
     sentences_in = [item[0] for item in batch]
     targets = [item[1] for item in batch]
 
@@ -411,7 +411,7 @@ def pad_batch(batch):
     targets.sort(key=lambda s: -1 * len(s))
 
     lens = np.array([len(s) for s in sentences_in], dtype=np.int64)
-    max_len =max(lens)
+    #max_len =max(lens)
     batch_size = len(sentences_in)
 
     #make batch
