@@ -26,6 +26,7 @@ from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import torch.optim.lr_scheduler as lr_scheduler
 import torch.utils.data as torch_data
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
@@ -69,19 +70,20 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
             tag_space = tag_space.cpu()
             tag_space_iden = tag_space_iden.cpu()
 
-        for target_doc in targets:
-            gold_triggers = get_trigger(target_doc.data.numpy().tolist())
+        gold_targets = targets.data.numpy().tolist()
+        pred_outputs = tag_outputs.view(args.batch_size, -1).numpy().tolist()
+        pred_idens = tag_outputs_iden.view(args.batch_size, -1).numpy().tolist()
+        for target_doc, out_doc, out_doc_iden in zip(gold_targets, pred_outputs, pred_idens):
+            gold_triggers = get_trigger(target_doc)
             gold_results.append(gold_triggers)
-            #print "eval target doc", target_doc.data.numpy().tolist()
+            #print "eval target doc", target_doc
             #print gold_triggers
-        for out_doc in tag_outputs.view(args.batch_size, -1):
-            sys_triggers = get_trigger(out_doc.numpy().tolist())
+            sys_triggers = get_trigger(out_doc)
             pred_results.append(sys_triggers)
             #print " eval out doc", out_doc.numpy().tolist()
             #print sys_triggers
-        for out_doc in tag_outputs_iden.view(args.batch_size, -1):
-            sys_triggers = get_trigger(out_doc.numpy().tolist())
-            pred_results_iden.append(sys_triggers)
+            sys_triggers_iden = get_trigger(out_doc_iden)
+            pred_results_iden.append(sys_triggers_iden)
 
         if args.loss_flag == "nlloss":
             loss = loss_function(tag_scores, targets.view(-1)) + loss_function(tag_scores_iden, iden_targets.view(-1))
@@ -122,7 +124,9 @@ def train_func(para_arr, args, data_sets, debug=False):
     model_params_to_feed = [vocab_size, tagset_size, embedding_dim, random_dim, pretrain_embedding]
 
     if 0:
-       check_dataloader(train_loader)
+       check_dataloader(train_loader, vocab_size)
+       check_dataloader(dev_loader, vocab_size)
+       check_dataloader(test_loader, vocab_size)
        return
 
     model = LSTMTrigger(model_params_to_feed, args)
@@ -136,14 +140,17 @@ def train_func(para_arr, args, data_sets, debug=False):
     if args.opti_flag == "adadelta":
         optimizer = optim.Adadelta(parameters, lr=args.lr)
     elif args.opti_flag == "sgd":
-        optimizer = optim.SGD(parameters, lr=args.lr, weight_decay=1e-4)
-        #optimizer = optim.SGD(parameters, lr=args.lr)
+        #optimizer = optim.SGD(parameters, lr=args.lr, weight_decay=1e-4)
+        optimizer = optim.SGD(parameters, lr=args.lr)
     elif args.opti_flag == "adam":
         optimizer = optim.Adam(parameters, lr=args.lr)
+    #scheduler = lr_scheduler.StepLR(optimizer, step_size=50, gamma=0.95)
 
 # training
     best_f1 = -1.0
+    best_epoch = -1
     for epoch in range(args.epoch_num):
+        #scheduler.step()
         training_id = 0
 
         for iteration, batch in enumerate(train_loader):
@@ -180,7 +187,7 @@ def train_func(para_arr, args, data_sets, debug=False):
                 targets = targets.cuda()
                 iden_targets = iden_targets.cuda()
 
-            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, debug)
+            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, debug=debug)
             #if debug:
                 #print "##size of tag_scores, targets, tag_scores_iden, iden_targets", tag_scores.size(), targets.view(-1).size(), tag_scores_iden.size(), iden_targets.view(-1).size()
                 #print "##data of tag_scores, targets, tag_scores_iden, iden_targets"
@@ -219,13 +226,15 @@ def train_func(para_arr, args, data_sets, debug=False):
         if prf_dev[2] > best_f1:
             print "##-- New best dev results on epoch", epoch, Tab, best_f1, "(old best)", Tab, loss_dev, time.asctime(), Tab,
             best_f1 = prf_dev[2]
+            best_epoch = epoch
             torch.save(model, model_path)
         else:
             print "##-- dev results on epoch", epoch, Tab, best_f1, "(best f1)", Tab, loss_dev, time.asctime(), Tab,
         outputPRF(prf_dev)
         print "## Iden result:",
         outputPRF(prf_dev_iden)
-        if best_f1 == 100.0: break
+        #if best_f1 == 100.0: break
+        if best_f1 == 100.0 or (epoch-best_epoch > 50): break
         #outputPRF(prf_dev_iden[0]), outputPRF(prf_dev_iden[1])
 
 # result on test
@@ -271,7 +280,9 @@ if __name__ == "__main__":
                 random.shuffle(training_data, lambda: 0.3) # shuffle data before get dev
             training_data = training_data[:-500]
             dev_data = training_data[-500:]
+            print "first example of dev", dev_data[0]
     model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
+    #sys.exit(0)
 
     vocab_size = len(vocab)
     pretrain_vocab_size, pretrain_embed_dim = pretrain_embedding.shape
@@ -318,13 +329,13 @@ if __name__ == "__main__":
     if train_use_tensor:
         train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train)
     else:
-        train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, collate_fn=pad_batch)
+        train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, collate_fn=pad_batch, drop_last=True)
     if test_use_tensor:
         dev_loader  = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size)
         test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size)
     else:
-        dev_loader  = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size, collate_fn=pad_batch)
-        test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=pad_batch)
+        dev_loader  = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size, collate_fn=pad_batch, drop_last=True)
+        test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=pad_batch, drop_last=True)
 
     #dev_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size)
     #test_loader = None

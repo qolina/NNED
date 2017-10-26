@@ -130,7 +130,7 @@ class LSTMTrigger(nn.Module):
         else:
             sent_length = batch.size(1)
 
-        print "## sent lens", sent_length
+        #print "## sent lens", sent_length
         positions = self.position_fea_in_sent(sent_length)
         embeds = self.word_embeddings(batch) # size: batch_size*sent_length*word_embed_size
         if debug:

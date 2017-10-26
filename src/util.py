@@ -171,6 +171,11 @@ def check_trigger(sent_tags, tagnum=33):
         if sent_tags_str.find(multi_tag_str) >= 0:
             print "-- multi-word trigger", sent_tags
 
+def idsent2words(sent, vocab):
+    id2word = dict([(word_index, word) for word, word_index in vocab.items()])
+    words = [id2word.get(word_index) for word_index in sent]
+    return words
+
 def check_data(data, vocab):
     id2word = dict([(word_index, word) for word, word_index in vocab.items()])
 # df = 1 > unk
@@ -240,7 +245,7 @@ def eval_sysResult(sys_out, gold_outs, eval_flag="class"):
     if len(matched) == 0: return None
     return matched[0]
 
-def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train"):
+def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train", debug_sents=None):
     debug = False
     common_in_docs = []
     num_in_docs_gold = []
@@ -280,7 +285,7 @@ def calPRF(common, num, num_gold):
 
 
 def load_data2(args):
-    debug = True
+    debug = False
 
     pretrain_embedding, pretrain_vocab = loadPretrain2(args.pretrain_embed)
     print "## pretrained embedding loaded.", time.asctime(), pretrain_embedding.shape
@@ -321,29 +326,42 @@ def load_data2(args):
             triggers = [(word_idx, id2word[training_data[i][0][word_idx]], tag) for word_idx, tag in enumerate(sent_tags) if tag != 0]
             print "## eg:", training_data[i]
             print triggers
+    [training_data, dev_data, test_data], pretrain_vocab, pretrain_embedding = resizeVocab([training_data, dev_data, test_data], pretrain_vocab, pretrain_embedding)
     return training_data, dev_data, test_data, pretrain_vocab, tags_data, pretrain_embedding, args.model
 
 # resize train dev test
-def resizeVocab(train_data, test_data, vocab, pretrain_embedding):
+def resizeVocab(data_arr, vocab, pretrain_embedding):
     old_vocab_size = len(vocab)
     word_counter = Counter()
-    for sent, _ in train_data + test_data:
+    all_data = []
+    for data in data_arr:
+        all_data.extend(data)
+    for sent, _ in all_data:
         word_counter += Counter(sent)
     words_top = [word for word, word_num in word_counter.most_common() if word_num >= 2]
     if old_vocab_size-1 not in words_top: words_top.append(old_vocab_size-1)
     new_vocab_size = len(words_top)
 
+    goal_vocab_size = 8000
+    if 0: # use goal_vocab_size 
+        if new_vocab_size < goal_vocab_size:
+            words_refill = [i for i in range(old_vocab_size) if i not in words_top][:goal_vocab_size-new_vocab_size]
+            words_top.extend(words_refill)
+            new_vocab_size = len(words_top)
+        
     words_change = {}
     for i in range(old_vocab_size):
         if i in words_top:
             words_change[i] = len(words_change)
-    train_data = [([words_change[word] if word in words_top else new_vocab_size-1 for word in sent], tag) for sent, tag in train_data]
-    test_data = [([words_change[word] if word in words_top else new_vocab_size-1 for word in sent], tag) for sent, tag in test_data]
+    new_data_arr = []
+    for data in data_arr:
+        data = [([words_change[word] if word in words_top else new_vocab_size-1 for word in sent], tag) for sent, tag in data]
+        new_data_arr.append(data)
     #print len(words_top)
     words_del = [i for i in range(old_vocab_size) if i not in words_top]
     pretrain_embedding = np.delete(pretrain_embedding, words_del, 0)
     vocab = dict([(wstr, words_change[wid]) for wstr, wid in vocab.items() if wid in words_top])
-    return train_data, test_data, vocab, pretrain_embedding
+    return new_data_arr, vocab, pretrain_embedding
 
 def sort_data(dataset):
     sent_length = [(sent_id, len(item[0])) for sent_id, item in enumerate(dataset)]
@@ -371,7 +389,7 @@ def load_data(args):
     #test_data = check_data(test_data, vocab)
     #check_trigger_test(training_data, test_data)
 
-    training_data, test_data, vocab, pretrain_embedding = resizeVocab(training_data, test_data, vocab, pretrain_embedding)
+    [training_data, test_data], vocab, pretrain_embedding = resizeVocab([training_data, test_data], vocab, pretrain_embedding)
 
 # tags_data: tag_name: tag_id
     tags_data = loadTag(args.tag)
@@ -384,25 +402,45 @@ def load_data(args):
     return training_data, None, test_data, vocab, tags_data, pretrain_embedding, args.model
 
 # test of dataloader
-def check_dataloader(dataloader):
+def check_dataloader(dataloader, vocab_size):
+    oov_num = 0  # number of oov words in data
+    word_num = 0 # number of words in data
+    oov_trigger_num = 0 # number of oov words serve as trigger
+    trigger_num = 0 # number of triggers
+    sent_lens = []
+
     for iteration, batch in enumerate(dataloader):
         sentence_in, targets, batch_sent_lens = batch # tensors, tensors, arr
         batch_sent_lens, sorted_lens_idx = batch_sent_lens.sort(dim=0, descending=True)
         sentence_in = sentence_in[sorted_lens_idx]
-        print batch_sent_lens.size(), len(batch_sent_lens.numpy())
-        print sentence_in.size()
-        print sentence_in
-        print batch_sent_lens.numpy()
-        sentence_in_pack = pack_padded_sequence(sentence_in, batch_sent_lens.numpy(), batch_first=True)
+        #print batch_sent_lens.size(), len(batch_sent_lens.numpy())
+        #print sentence_in.size()
+        #print sentence_in
+        #print batch_sent_lens.numpy()
+        #sentence_in_pack = pack_padded_sequence(sentence_in, batch_sent_lens.numpy(), batch_first=True)
 
-        continue
-        for target_doc in targets:
-            print "eval target doc", target_doc.numpy().tolist()
-            gold_triggers = get_trigger(target_doc.numpy().tolist())
-            print gold_triggers
+        sent_lens.extend(batch_sent_lens)
+        word_num += sum(batch_sent_lens)
+        for sent, target in zip(sentence_in.numpy().tolist(), targets.numpy().tolist()):
+            oovs_sent = [wid for wid in sent if wid == vocab_size-1]
+            gold_triggers = get_trigger(target)
+            oovs_trig_sent = [(wid, tag) for wid, tag in zip(sent, target) if wid == vocab_size-1 and tag != 0]
+
+            oov_num += len(oovs_sent)
+            oov_trigger_num += len(oovs_trig_sent)
+            trigger_num += len(gold_triggers)
+            #if len(gold_triggers) > 0:
+            #    print "## sent, target", zip(sent, target)
+            #    print "## oovs, oovs_trig", oovs_sent, oovs_trig_sent
+
+    print "## oov_trigger_num, oov_num, trigger_num, word_num", oov_trigger_num, oov_num, trigger_num, word_num
+    print "## ratio of oov_trigger/oov", oov_trigger_num*100.0/oov_num
+    print "## ratio of oov_trigger/trigger", oov_trigger_num*100.0/trigger_num
+    print "## ratio of oov/word", oov_num*100.0/word_num
+    print "## distri of sent lens", max(sent_lens), min(sent_lens), sum(sent_lens)*1.0/len(sent_lens), Counter(sent_lens).most_common()
 
 # input: [(sent, target), ...]
-def pad_batch(batch, max_len=80):
+def pad_batch(batch, max_len=-1):
     sentences_in = [item[0] for item in batch]
     targets = [item[1] for item in batch]
 
@@ -411,7 +449,7 @@ def pad_batch(batch, max_len=80):
     targets.sort(key=lambda s: -1 * len(s))
 
     lens = np.array([len(s) for s in sentences_in], dtype=np.int64)
-    #max_len =max(lens)
+    if max_len == -1: max_len = max(lens)
     batch_size = len(sentences_in)
 
     #make batch
