@@ -245,22 +245,30 @@ def eval_sysResult(sys_out, gold_outs, eval_flag="class"):
     if len(matched) == 0: return None
     return matched[0]
 
-def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train", debug_sents=None):
+def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train", debug_sents=None, vocab=None):
     debug = False
     common_in_docs = []
     num_in_docs_gold = []
     num_in_docs = []
-    for items_in_doc, items_in_doc_gold in zip(items_in_docs_gold, items_in_docs):
+    doc_id = 0
+    for items_in_doc, items_in_doc_gold, debug_sent in zip(items_in_docs_gold, items_in_docs, debug_sents):
         match_result_in_doc = [eval_sysResult(item, items_in_doc_gold) for item in items_in_doc]
         common_in_doc = [item for item, match_result in zip(items_in_doc, match_result_in_doc) if match_result is not None]
         missed_in_doc_gold = [item for item in items_in_doc_gold if item not in common_in_doc]
         wrong_in_doc = [item for item in items_in_doc if item not in common_in_doc]
         if data_flag == "test_final":
             print "## final results of test doc:", len(common_in_docs)+1, " common, wrong, missed", common_in_doc, wrong_in_doc, missed_in_doc_gold
+        if data_flag == "test_final":
+            if len(missed_in_doc_gold)+len(wrong_in_doc) > 0:
+                debug_words = idsent2words(debug_sent, vocab)
+                print "## eval debug sent", doc_id, debug_words
+                print "## missed trig", [(debug_words[item[0]], item[1]) for item in missed_in_doc_gold]
+                print "## wrong trig", [(debug_words[item[0]], item[1]) for item in missed_in_doc_gold]
 
         common_in_docs.append(len(common_in_doc))
         num_in_docs_gold.append(len(items_in_doc_gold))
         num_in_docs.append(len(items_in_doc))
+        doc_id += 1
 
     common = sum(common_in_docs)
     num_gold = sum(num_in_docs_gold)

@@ -41,12 +41,13 @@ def arr2tensor(arr):
 def tensor2var(eg_tensor):
     return autograd.Variable(eg_tensor, requires_grad=False)
 
-def eval_model(data_loader, model, loss_function, data_flag, gpu):
+def eval_model(data_loader, model, loss_function, data_flag, gpu, vocab=None):
     debug = False
     loss_all = 0
     gold_results = []
     pred_results = []
     pred_results_iden = []
+    debug_sents = []
     for iteration, batch in enumerate(data_loader):
         sentence_in, targets, batch_sent_lens = batch
         iden_targets = torch.gt(targets, torch.zeros(targets.size()).type_as(targets)) 
@@ -69,7 +70,10 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
             tag_scores_iden = tag_scores_iden.cpu()
             tag_space = tag_space.cpu()
             tag_space_iden = tag_space_iden.cpu()
+            sentence_in = sentence_in.cpu()
 
+
+        debug_sents.extend(sentence_in.data.numpy().tolist())
         gold_targets = targets.data.numpy().tolist()
         pred_outputs = tag_outputs.view(args.batch_size, -1).numpy().tolist()
         pred_idens = tag_outputs_iden.view(args.batch_size, -1).numpy().tolist()
@@ -95,7 +99,7 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu):
         for i in range(10):
             print i, gold_results[i]
             print i, pred_results[i]
-    prf = evalPRF(gold_results, pred_results, data_flag)
+    prf = evalPRF(gold_results, pred_results, data_flag, debug_sents=debug_sents, vocab=vocab)
     prf_iden = evalPRF_iden(gold_results, pred_results)
     #prf_iden2 = evalPRF_iden(gold_results, pred_results_iden)
     return loss_all, prf, prf_iden
@@ -112,8 +116,7 @@ def train_func(para_arr, args, data_sets, debug=False):
     model_path = para_arr[6]
     gpu = args.gpu
 
-    #training_data, dev_data, test_data, pretrain_embedding = data_sets # non-batch mode
-    train_loader, dev_loader, test_loader, pretrain_embedding = data_sets
+    train_loader, dev_loader, test_loader, pretrain_embedding, vocab = data_sets
 
     random_dim = 10
 
@@ -211,7 +214,7 @@ def train_func(para_arr, args, data_sets, debug=False):
             loss.backward()
             optimizer.step()
             training_id += sentence_in.size(0)
-            if args.batch_size>1 and iteration % 100 == 0:
+            if args.batch_size>1 and iteration+1 % 1000 == 0:
                 print "## training id in batch", iteration, " is :", training_id, time.asctime()
 
         loss_train, prf_train, prf_train_iden = eval_model(train_loader, model, loss_function, "train", gpu)
@@ -239,9 +242,9 @@ def train_func(para_arr, args, data_sets, debug=False):
 
 # result on test
         if epoch >= 2 and epoch % 10 == 0:
-            if epoch % 100 == 0:
+            if epoch % 50 == 0:
                 model_test = torch.load(model_path)
-                loss_test, prf_test, prf_test_iden = eval_model(test_loader, model_test, loss_function, "test_final", gpu)
+                loss_test, prf_test, prf_test_iden = eval_model(test_loader, model_test, loss_function, "test_final", gpu, vocab=vocab)
                 model_test = None
             else:
                 loss_test, prf_test, prf_test_iden = eval_model(test_loader, model, loss_function, "test", gpu)
@@ -253,7 +256,7 @@ def train_func(para_arr, args, data_sets, debug=False):
 
 # final result on test
     model = torch.load(model_path)
-    loss_test, prf_test, prf_test_iden = eval_model(test_loader, model, loss_function, "test_final", gpu)
+    loss_test, prf_test, prf_test_iden = eval_model(test_loader, model, loss_function, "test_final", gpu, vocab=vocab)
     print "## Final results on test", loss_test, time.asctime(), Tab,
     outputPRF(prf_test)
     print "## Iden result:",
@@ -339,7 +342,7 @@ if __name__ == "__main__":
 
     #dev_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size)
     #test_loader = None
-    data_sets = train_loader, dev_loader, test_loader, pretrain_embedding
+    data_sets = train_loader, dev_loader, test_loader, pretrain_embedding, vocab
 
     # begin to train
     train_func(para_arr, args, data_sets)
