@@ -78,9 +78,11 @@ def roleModify(eventSubType, role):
 
 # -InputFormat of sentHash: sent:eventArr
 #   -event = [(sentence_ldc_scope, index), eventType, eventSubType, (anchorText, index), (argText, role, index), (argText, role, index), ...]
+#   -use_eventType: whether do 8-class classification or 34-class classification
 # -OutputFormat of jointTrain: (sentenceId, sentence, eventTypeSequence, event)
 #   -event: triggerIndex, roleSequence
-def sent2JointTrain(sentHash, testFlag, eventSubTypeRoleHash):
+def sent2JointTrain(sentHash, testFlag, eventSubTypeRoleHash, use_eventType = False):
+
     #eventTypeArr = sorted(eventSubTypeRoleHash.keys())
 
     debug = True
@@ -139,8 +141,8 @@ def sent2JointTrain(sentHash, testFlag, eventSubTypeRoleHash):
                 print "-- zero-instance trigger:", trigger_text, trigger, trigger_index
                 continue
             for ti in range(trigger_index[0], trigger_index[1]+1):
-                #eventTypeSequence[ti] = eventSubType
-                eventTypeSequence[ti] = eventType
+                if use_eventType: eventTypeSequence[ti] = eventType
+                else: eventTypeSequence[ti] = eventSubType
             if debug:
                 print "-- trigger detail:", wordsInTrg, Tab, trigger_index
 
@@ -151,7 +153,7 @@ def sent2JointTrain(sentHash, testFlag, eventSubTypeRoleHash):
                 arg_index = (arg_index[0]-sent_st, arg_index[1]-sent_st)
                 role = role.lower()
                 # change role into first layer role
-                role = roleModify(eventSubType, role)
+                if use_eventType: role = roleModify(eventSubType, role)
                 wordsInArg = wordpunct_tokenize(arg)
                 arg_text_pre = sentenceRaw[:arg_index[0]]
                 arg_text_by_index = sentenceRaw[arg_index[0]:arg_index[1]+1]
