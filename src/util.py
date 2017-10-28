@@ -245,7 +245,13 @@ def eval_sysResult(sys_out, gold_outs, eval_flag="class"):
     if len(matched) == 0: return None
     return matched[0]
 
-def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train", debug_sents=None, vocab=None):
+def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train", debug_sents=None, vocab=None, tags_data=None):
+    if data_flag == "test_final": id2tagname = dict([(tags_data[item], item) for item in tags_data])
+    if data_flag == "test_final": 
+        gold_tags = []
+        pred_tags = []
+        pred_tags_missed = []
+        pred_tags_wrong = []
     debug = False
     common_in_docs = []
     num_in_docs_gold = []
@@ -257,13 +263,19 @@ def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train", debug_sents=No
         missed_in_doc_gold = [item for item in items_in_doc_gold if item not in common_in_doc]
         wrong_in_doc = [item for item in items_in_doc if item not in common_in_doc]
         if data_flag == "test_final":
-            print "## final results of test doc:", len(common_in_docs)+1, " common, wrong, missed", common_in_doc, wrong_in_doc, missed_in_doc_gold
-        if data_flag == "test_final":
+            gold_tags.extend([item[1] for item in items_in_doc_gold])
+            pred_tags.extend([item[1] for item in items_in_doc])
+            pred_tags_missed.extend([item[1] for item in missed_in_doc_gold])
+            pred_tags_wrong.extend([item[1] for item in wrong_in_doc])
+            debug_words = idsent2words(debug_sent, vocab)
+            print "## eval debug sent", doc_id, zip(debug_words, range(len(debug_sent)))
+            if len(items_in_doc_gold) > 0:
+            #    print "## final results of test doc:", len(common_in_docs)+1, " common, wrong, missed", common_in_doc, wrong_in_doc, missed_in_doc_gold
+                print "## gold trig", [(item[0], debug_words[item[0]], item[1], id2tagname.get(item[1])) for item in items_in_doc_gold]
             if len(missed_in_doc_gold)+len(wrong_in_doc) > 0:
-                debug_words = idsent2words(debug_sent, vocab)
-                print "## eval debug sent", doc_id, debug_words
-                print "## missed trig", [(debug_words[item[0]], item[1]) for item in missed_in_doc_gold]
-                print "## wrong trig", [(debug_words[item[0]], item[1]) for item in missed_in_doc_gold]
+                if len(missed_in_doc_gold) > 0: print "## missed trig", [(item[0], debug_words[item[0]], item[1], id2tagname.get(item[1])) for item in missed_in_doc_gold], "\t\t",
+                if len(wrong_in_doc)>0: print "## wrong trig", [(item[0], debug_words[item[0]], item[1], id2tagname.get(item[1])) for item in wrong_in_doc],
+                print
 
         common_in_docs.append(len(common_in_doc))
         num_in_docs_gold.append(len(items_in_doc_gold))
@@ -280,6 +292,15 @@ def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train", debug_sents=No
         #print "-- common_in_docs", common_in_docs
         #print "-- num_in_docs_gold", num_in_docs_gold
         #print "-- num_in_docs", num_in_docs
+        pred_tags_counter = Counter(pred_tags)
+        pred_tags_missed_counter = Counter(pred_tags_missed)
+        pred_tags_wrong_counter  = Counter(pred_tags_wrong)
+        print "## tag pred distribution: tag    num     ratio   pred_num    pred_ratio      missed_num      missed_ratio     wrong_num      wrong_ratio"
+        for item in Counter(gold_tags).most_common(): 
+            print id2tagname[item[0]], "\t\t\t", item[1], "\t", round(item[1]*100.0/len(gold_tags)), "\t",
+            print pred_tags_counter[item[0]], "\t", round(pred_tags_counter[item[0]]*100.0/len(pred_tags)), "\t",
+            print pred_tags_missed_counter[item[0]], "\t", round(pred_tags_missed_counter[item[0]]*100.0/len(pred_tags_missed)), "\t",
+            print pred_tags_wrong_counter[item[0]], "\t", round(pred_tags_wrong_counter[item[0]]*100.0/len(pred_tags_wrong))
 
     pre, rec, f1 = calPRF(common, num, num_gold)
     return pre, rec, f1
@@ -363,12 +384,18 @@ def resizeVocab(data_arr, vocab, pretrain_embedding):
             words_change[i] = len(words_change)
     new_data_arr = []
     for data in data_arr:
-        data = [([words_change[word] if word in words_top else new_vocab_size-1 for word in sent], tag) for sent, tag in data]
-        new_data_arr.append(data)
+        #print "## before data vocab change"
+        #for sent, tag in data[:10]: print zip(sent, idsent2words(sent, vocab))
+        new_data = [([words_change[word] if word in words_top else new_vocab_size-1 for word in sent], tag) for sent, tag in data]
+        new_data_arr.append(new_data)
     #print len(words_top)
     words_del = [i for i in range(old_vocab_size) if i not in words_top]
     pretrain_embedding = np.delete(pretrain_embedding, words_del, 0)
     vocab = dict([(wstr, words_change[wid]) for wstr, wid in vocab.items() if wid in words_top])
+    #for data in new_data_arr:
+    #    print "## aft data vocab change"
+    #    for sent, tag in data[:10]: print zip(sent, idsent2words(sent, vocab))
+    #    break
     return new_data_arr, vocab, pretrain_embedding
 
 def sort_data(dataset):
@@ -397,7 +424,9 @@ def load_data(args):
     #test_data = check_data(test_data, vocab)
     #check_trigger_test(training_data, test_data)
 
+    id2word = dict([(word_index, word) for word, word_index in vocab.items()])
     [training_data, test_data], vocab, pretrain_embedding = resizeVocab([training_data, test_data], vocab, pretrain_embedding)
+    id2word = dict([(word_index, word) for word, word_index in vocab.items()])
 
 # tags_data: tag_name: tag_id
     tags_data = loadTag(args.tag)

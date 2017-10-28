@@ -41,7 +41,7 @@ def arr2tensor(arr):
 def tensor2var(eg_tensor):
     return autograd.Variable(eg_tensor, requires_grad=False)
 
-def eval_model(data_loader, model, loss_function, data_flag, gpu, vocab=None):
+def eval_model(data_loader, model, loss_function, data_flag, gpu, vocab=None, tags_data=None):
     debug = False
     loss_all = 0
     gold_results = []
@@ -99,7 +99,7 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu, vocab=None):
         for i in range(10):
             print i, gold_results[i]
             print i, pred_results[i]
-    prf = evalPRF(gold_results, pred_results, data_flag, debug_sents=debug_sents, vocab=vocab)
+    prf = evalPRF(gold_results, pred_results, data_flag, debug_sents=debug_sents, vocab=vocab, tags_data=tags_data)
     prf_iden = evalPRF_iden(gold_results, pred_results)
     #prf_iden2 = evalPRF_iden(gold_results, pred_results_iden)
     return loss_all, prf, prf_iden
@@ -116,7 +116,7 @@ def train_func(para_arr, args, data_sets, debug=False):
     model_path = para_arr[6]
     gpu = args.gpu
 
-    train_loader, dev_loader, test_loader, pretrain_embedding, vocab = data_sets
+    train_loader, dev_loader, test_loader, pretrain_embedding, vocab, tags_data = data_sets
 
     random_dim = 10
 
@@ -244,7 +244,7 @@ def train_func(para_arr, args, data_sets, debug=False):
         if epoch >= 2 and epoch % 10 == 0:
             if epoch % 50 == 0:
                 model_test = torch.load(model_path)
-                loss_test, prf_test, prf_test_iden = eval_model(test_loader, model_test, loss_function, "test_final", gpu, vocab=vocab)
+                loss_test, prf_test, prf_test_iden = eval_model(test_loader, model_test, loss_function, "test_final", gpu, vocab=vocab, tags_data=tags_data)
                 model_test = None
             else:
                 loss_test, prf_test, prf_test_iden = eval_model(test_loader, model, loss_function, "test", gpu)
@@ -256,7 +256,8 @@ def train_func(para_arr, args, data_sets, debug=False):
 
 # final result on test
     model = torch.load(model_path)
-    loss_test, prf_test, prf_test_iden = eval_model(test_loader, model, loss_function, "test_final", gpu, vocab=vocab)
+    loss_train, prf_train, prf_train_iden = eval_model(train_loader, model, loss_function, "test_final", gpu, vocab=vocab, tags_data=tags_data)
+    loss_test, prf_test, prf_test_iden = eval_model(test_loader, model, loss_function, "test_final", gpu, vocab=vocab, tags_data=tags_data)
     print "## Final results on test", loss_test, time.asctime(), Tab,
     outputPRF(prf_test)
     print "## Iden result:",
@@ -285,12 +286,12 @@ if __name__ == "__main__":
             dev_data = training_data[-500:]
             print "first example of dev", dev_data[0]
     model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
-    #sys.exit(0)
 
     vocab_size = len(vocab)
     pretrain_vocab_size, pretrain_embed_dim = pretrain_embedding.shape
     tagset_size = len(tags_data)
 
+    #sys.exit(0)
     if 0:
         all_data = training_data+dev_data+test_data
         sent_lens = [len(item[0]) for item in all_data]
@@ -342,7 +343,7 @@ if __name__ == "__main__":
 
     #dev_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size)
     #test_loader = None
-    data_sets = train_loader, dev_loader, test_loader, pretrain_embedding, vocab
+    data_sets = train_loader, dev_loader, test_loader, pretrain_embedding, vocab, tags_data
 
     # begin to train
     train_func(para_arr, args, data_sets)
