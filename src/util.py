@@ -257,7 +257,7 @@ def evalPRF(items_in_docs_gold, items_in_docs, data_flag="train", debug_sents=No
     num_in_docs_gold = []
     num_in_docs = []
     doc_id = 0
-    for items_in_doc, items_in_doc_gold, debug_sent in zip(items_in_docs_gold, items_in_docs, debug_sents):
+    for items_in_doc, items_in_doc_gold, debug_sent in zip(items_in_docs, items_in_docs_gold, debug_sents):
         match_result_in_doc = [eval_sysResult(item, items_in_doc_gold) for item in items_in_doc]
         common_in_doc = [item for item, match_result in zip(items_in_doc, match_result_in_doc) if match_result is not None]
         missed_in_doc_gold = [item for item in items_in_doc_gold if item not in common_in_doc]

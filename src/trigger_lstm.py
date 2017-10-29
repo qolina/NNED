@@ -216,6 +216,20 @@ def train_func(para_arr, args, data_sets, debug=False):
             training_id += sentence_in.size(0)
             if args.batch_size>1 and iteration+1 % 1000 == 0:
                 print "## training id in batch", iteration, " is :", training_id, time.asctime()
+            if training_id % 30 != 0: continue
+            # record best result on dev after each batch training
+            loss_dev, prf_dev, prf_dev_iden = eval_model(dev_loader, model, loss_function, "dev", gpu)
+            if prf_dev[2] > best_f1:
+                print "##-- New best dev results on iter", iteration, training_id, Tab, best_f1, "(old best)", Tab, loss_dev, time.asctime(), Tab,
+                best_f1 = prf_dev[2]
+                best_epoch = epoch
+                torch.save(model, model_path)
+            else:
+                print "##-- dev results on iter", iteration, training_id, Tab, best_f1, "(best f1)", Tab, loss_dev, time.asctime(), Tab,
+            outputPRF(prf_dev)
+            print "## Iden result:",
+            outputPRF(prf_dev_iden)
+
 
         loss_train, prf_train, prf_train_iden = eval_model(train_loader, model, loss_function, "train", gpu)
         print "## train results on epoch:", epoch, Tab, loss_train, time.asctime(), Tab,
@@ -224,7 +238,7 @@ def train_func(para_arr, args, data_sets, debug=False):
         outputPRF(prf_train_iden)
         #outputPRF(prf_train_iden[0]), outputPRF(prf_train_iden[1])
 
-# result on dev
+# record best result on dev
         loss_dev, prf_dev, prf_dev_iden = eval_model(dev_loader, model, loss_function, "dev", gpu)
         if prf_dev[2] > best_f1:
             print "##-- New best dev results on epoch", epoch, Tab, best_f1, "(old best)", Tab, loss_dev, time.asctime(), Tab,
@@ -282,8 +296,8 @@ if __name__ == "__main__":
         else:
             if 1:
                 random.shuffle(training_data, lambda: 0.3) # shuffle data before get dev
-            training_data = training_data[:-500]
             dev_data = training_data[-500:]
+            training_data = training_data[:-500]
             print "first example of dev", dev_data[0]
     model_path = model_path + "_" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + "_"
 
@@ -293,11 +307,18 @@ if __name__ == "__main__":
 
     #sys.exit(0)
     if 0:
+        train_sents = [" ".join([str(witem) for witem in item[0]]) for item in training_data]
+        dev_sents = [" ".join([str(witem) for witem in item[0]]) for item in dev_data]
+        common_in_dev = [item for item in dev_sents if item in train_sents]
+        print "## sents in dev, already in train", len(common_in_dev)
+        print common_in_dev
+        sys.exit(0)
+    if 0: # statistic sent length
         all_data = training_data+dev_data+test_data
         sent_lens = [len(item[0]) for item in all_data]
         print "## Statistic sent length:", max(sent_lens), min(sent_lens)
         sys.exit(0)
-    if 0:
+    if 0: # output to dynet format
         output_normal_pretrain(pretrain_embedding, vocab, "../ni_data/f.ace.pretrain300.vectors")
         output_dynet_format(training_data, vocab, tags_data, "../ni_data/f.ace_trigger.train")
         output_dynet_format(dev_data, vocab, tags_data, "../ni_data/f.ace_trigger.dev")
