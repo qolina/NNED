@@ -337,13 +337,13 @@ def load_data2(args):
     if debug:
         for i in range(10, 13):
             sent_tags = training_data[i][1]
-            triggers = [(word_idx, training_data[i][0][word_idx], tag) for word_idx, tag in enumerate(sent_tags) if tag != "none"]
+            triggers = [(word_idx, training_data[i][0][word_idx], tag) for word_idx, tag in enumerate(sent_tags) if tag != "o"]
             print "## eg:", training_data[i]
             print triggers
-    tags_data = sorted(list(set([tag_text for sent_text, tags_text in training_data for tag_text in tags_text if tag_text != "none"])))
+    tags_data = sorted(list(set([tag_text for sent_text, tags_text in training_data for tag_text in tags_text if tag_text != "o"])))
     tags_data = dict(zip(tags_data, range(1, len(tags_data)+1)))
     #tags_data = dict([(tag_text, tag_id+1) for tag_id, tag_text in enumerate(tags_data)])
-    tags_data["none"] = 0
+    tags_data["o"] = 0
 
     ## text to id
     training_data = [([pretrain_vocab[word_text] if word_text in pretrain_vocab else unk_id for word_text in sent_text_arr], [tags_data.get(tag_text) for tag_text in tags_text_arr]) for sent_text_arr, tags_text_arr in training_data]

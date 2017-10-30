@@ -52,7 +52,7 @@ def negSent2JointTrain(negSents, posSentNum):
     for sentId, (sent_id, sent) in enumerate(negSents):
         wordsIn = wordpunct_tokenize(sent)
         sent = " ".join(wordsIn)
-        eventTypeSequence = ["none" for i in range(len(wordsIn))]
+        eventTypeSequence = ["O" for i in range(len(wordsIn))]
         neg_training_data.append((str(sentId + posSentNum), sent, eventTypeSequence))
     return neg_training_data
 
@@ -100,7 +100,7 @@ def sent2JointTrain(sentHash, testFlag, eventSubTypeRoleHash, use_eventType = Fa
             print "-- raw sent:", sentenceRaw
             print "-- wordsInSent:", wordsIn
 
-        eventTypeSequence = ["none" for i in range(len(wordsIn))]
+        eventTypeSequence = ["O" for i in range(len(wordsIn))]
         trigEventArr = []
 
         for event in eventArr:

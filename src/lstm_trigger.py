@@ -87,10 +87,12 @@ class LSTMTrigger(nn.Module):
         self.hidden = self.init_hidden(gpu)
 
     # init hidden of lstm
-    def init_hidden(self, gpu):
-        dims = (self.lstm_layer, self.batch_size, self.lstm_hidden_dim)
+    def init_hidden(self, gpu, last_batch_size=None):
+        if last_batch_size is None: lstm_hidden_batch_size = self.batch_size
+        else: lstm_hidden_batch_size = last_batch_size
+        dims = (self.lstm_layer, lstm_hidden_batch_size, self.lstm_hidden_dim)
         if self.bilstm_flag:
-            dims = (2*self.lstm_layer, self.batch_size, self.lstm_hidden_dim)
+            dims = (2*self.lstm_layer, lstm_hidden_batch_size, self.lstm_hidden_dim)
         init_value = torch.Tensor(np.random.uniform(-0.01, 0.01, dims))
         #init_value = torch.zeros(dims)
         h0 = autograd.Variable(init_value)
@@ -122,9 +124,12 @@ class LSTMTrigger(nn.Module):
         return positions
         
     # batch shape: (batch_size, sent_length)
-    def forward(self, batch, batch_sent_lens, gpu, debug=False, use_mask=True, is_test_flag=False):
+    def forward(self, batch, batch_sent_lens, gpu, debug=False, use_mask=True, is_test_flag=False, last_batch_size=None):
+
+        if last_batch_size is None: forward_batch_size = self.batch_size
+        else: forward_batch_size = last_batch_size
         debug = False
-        use_mask = False
+        #use_mask = False
         if use_mask:
             sent_length = max(batch_sent_lens.numpy())
         else:
@@ -213,6 +218,9 @@ class LSTMTrigger(nn.Module):
             lstm_out, self.hidden = self.lstm(embeds, self.hidden)
             hidden_in = lstm_out
         else:
+            #print self.lstm
+            #print "## self hidden", self.hidden[0].data.size(), self.hidden[1].data.size()
+            #print embeds_pack.data.size()
             embeds_pack = pack_padded_sequence(embeds, batch_sent_lens.numpy())
             lstm_out, self.hidden = self.lstm(embeds_pack, self.hidden)
             hidden_in, _ = pad_packed_sequence(lstm_out)
@@ -221,11 +229,10 @@ class LSTMTrigger(nn.Module):
             hidden_in = torch.cat((hidden_in, c1_embed, c2_embed), -1)
 
         hidden_in = hidden_in.transpose(0, 1).contiguous() # batch_size * sent_length * hidden_dim
-        hidden_in = hidden_in.view(self.batch_size*sent_length, -1)
-        if debug:
-            print "## hidden in:", hidden_in.data.size(), type(hidden_in.data), hidden_in.view(self.batch_size*sent_length, -1).size()
-            print hidden_in
-            print hidden_in.view(self.batch_size*sent_length, -1).data
+        hidden_in = hidden_in.view(forward_batch_size*sent_length, -1)
+        #print "## hidden in:", hidden_in.data.size()
+        #print "## hidden2tag layer", self.hidden2tag
+        #print "## hidden2tag_iden layer", self.hidden2tag_iden
 
         if self.hidden_dim_snd != -1: 
             hidden_snd = self.fst_hidden(hidden_in)

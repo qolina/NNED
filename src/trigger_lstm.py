@@ -52,6 +52,12 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu, vocab=None, ta
         sentence_in, targets, batch_sent_lens = batch
         iden_targets = torch.gt(targets, torch.zeros(targets.size()).type_as(targets)) 
 
+        if sentence_in.size(0) != args.batch_size: eval_batch_size = sentence_in.size(0)
+        else: eval_batch_size = args.batch_size
+
+        if sentence_in.size(0) != args.batch_size: model.hidden = model.init_hidden(gpu, last_batch_size=eval_batch_size)
+        else: model.hidden = model.init_hidden(gpu)
+
         sentence_in = tensor2var(sentence_in)
         targets = tensor2var(targets)
         iden_targets = tensor2var(iden_targets).type_as(targets)
@@ -59,7 +65,10 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu, vocab=None, ta
         if gpu:
             sentence_in = sentence_in.cuda()
 
-        tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, is_test_flag=True)
+        if sentence_in.size(0) != args.batch_size: 
+            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, is_test_flag=True, last_batch_size=eval_batch_size)
+        else:
+            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, is_test_flag=True)
 
         _, tag_outputs = tag_scores.data.max(1)
         _, tag_outputs_iden = tag_scores_iden.data.max(1)
@@ -75,8 +84,8 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu, vocab=None, ta
 
         debug_sents.extend(sentence_in.data.numpy().tolist())
         gold_targets = targets.data.numpy().tolist()
-        pred_outputs = tag_outputs.view(args.batch_size, -1).numpy().tolist()
-        pred_idens = tag_outputs_iden.view(args.batch_size, -1).numpy().tolist()
+        pred_outputs = tag_outputs.view(eval_batch_size, -1).numpy().tolist()
+        pred_idens = tag_outputs_iden.view(eval_batch_size, -1).numpy().tolist()
         for target_doc, out_doc, out_doc_iden in zip(gold_targets, pred_outputs, pred_idens):
             gold_triggers = get_trigger(target_doc)
             gold_results.append(gold_triggers)
@@ -158,8 +167,10 @@ def train_func(para_arr, args, data_sets, debug=False):
 
         for iteration, batch in enumerate(train_loader):
             model.zero_grad()
-            model.hidden = model.init_hidden(gpu)
             sentence_in, targets, batch_sent_lens = batch
+            if sentence_in.size(0) != args.batch_size: model.hidden = model.init_hidden(gpu, last_batch_size=sentence_in.size(0))
+            else: model.hidden = model.init_hidden(gpu)
+            #print "## model hidden", model.hidden[0].data.size(), model.hidden[1].data.size()
 
             #print iteration, targets.numpy().tolist()
             iden_targets = torch.gt(targets, torch.zeros(targets.size()).type_as(targets)) 
@@ -190,7 +201,10 @@ def train_func(para_arr, args, data_sets, debug=False):
                 targets = targets.cuda()
                 iden_targets = iden_targets.cuda()
 
-            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, debug=debug)
+            if sentence_in.size(0) != args.batch_size: 
+                tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, debug=debug, last_batch_size=sentence_in.size(0))
+            else:
+                tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, debug=debug)
             #if debug:
                 #print "##size of tag_scores, targets, tag_scores_iden, iden_targets", tag_scores.size(), targets.view(-1).size(), tag_scores_iden.size(), iden_targets.view(-1).size()
                 #print "##data of tag_scores, targets, tag_scores_iden, iden_targets"
@@ -216,27 +230,28 @@ def train_func(para_arr, args, data_sets, debug=False):
             training_id += sentence_in.size(0)
             if args.batch_size>1 and iteration+1 % 1000 == 0:
                 print "## training id in batch", iteration, " is :", training_id, time.asctime()
-            if training_id % 30 != 0: continue
+            if training_id % 50 != 0: continue
             # record best result on dev after each batch training
             loss_dev, prf_dev, prf_dev_iden = eval_model(dev_loader, model, loss_function, "dev", gpu)
             if prf_dev[2] > best_f1:
-                print "##-- New best dev results on iter", iteration, training_id, Tab, best_f1, "(old best)", Tab, loss_dev, time.asctime(), Tab,
+                print "##-- New best dev results on epoch iter", epoch, iteration, training_id, Tab, best_f1, "(old best)", Tab, loss_dev, time.asctime(), Tab,
                 best_f1 = prf_dev[2]
                 best_epoch = epoch
                 torch.save(model, model_path)
             else:
-                print "##-- dev results on iter", iteration, training_id, Tab, best_f1, "(best f1)", Tab, loss_dev, time.asctime(), Tab,
+                print "##-- dev results on epoch iter", epoch, iteration, training_id, Tab, best_f1, "(best f1)", Tab, loss_dev, time.asctime(), Tab,
             outputPRF(prf_dev)
             print "## Iden result:",
             outputPRF(prf_dev_iden)
 
 
-        loss_train, prf_train, prf_train_iden = eval_model(train_loader, model, loss_function, "train", gpu)
-        print "## train results on epoch:", epoch, Tab, loss_train, time.asctime(), Tab,
-        outputPRF(prf_train)
-        print "## Iden result:", 
-        outputPRF(prf_train_iden)
-        #outputPRF(prf_train_iden[0]), outputPRF(prf_train_iden[1])
+        ## output result on train
+        #loss_train, prf_train, prf_train_iden = eval_model(train_loader, model, loss_function, "train", gpu)
+        #print "## train results on epoch:", epoch, Tab, loss_train, time.asctime(), Tab,
+        #outputPRF(prf_train)
+        #print "## Iden result:", 
+        #outputPRF(prf_train_iden)
+        ##outputPRF(prf_train_iden[0]), outputPRF(prf_train_iden[1])
 
 # record best result on dev
         loss_dev, prf_dev, prf_dev_iden = eval_model(dev_loader, model, loss_function, "dev", gpu)
@@ -348,19 +363,20 @@ if __name__ == "__main__":
     else:
         (train_use_tensor, train_use_pad, test_use_tensor, test_use_pad) = (False, False, False, False)
 
+    drop_last = False
     train_dataset = MyDataset(training_data, use_tensor=train_use_tensor, use_pad=train_use_pad)
     dev_dataset = MyDataset(dev_data, use_tensor=test_use_tensor, use_pad=test_use_pad)
     test_dataset = MyDataset(test_data, use_tensor=test_use_tensor, use_pad=test_use_pad)
     if train_use_tensor:
         train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train)
     else:
-        train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, collate_fn=pad_batch, drop_last=True)
+        train_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=args.shuffle_train, collate_fn=pad_batch, drop_last=drop_last)
     if test_use_tensor:
         dev_loader  = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size)
         test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size)
     else:
-        dev_loader  = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size, collate_fn=pad_batch, drop_last=True)
-        test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=pad_batch, drop_last=True)
+        dev_loader  = torch_data.DataLoader(dev_dataset, batch_size=args.batch_size, collate_fn=pad_batch, drop_last=drop_last)
+        test_loader = torch_data.DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=pad_batch, drop_last=drop_last)
 
     #dev_loader = torch_data.DataLoader(train_dataset, batch_size=args.batch_size)
     #test_loader = None
