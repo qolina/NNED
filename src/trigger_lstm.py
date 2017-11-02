@@ -66,9 +66,9 @@ def eval_model(data_loader, model, loss_function, data_flag, gpu, vocab=None, ta
             sentence_in = sentence_in.cuda()
 
         if sentence_in.size(0) != args.batch_size: 
-            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, is_test_flag=True, last_batch_size=eval_batch_size)
+            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, is_test_flag=True, last_batch_size=eval_batch_size, data_flag=data_flag)
         else:
-            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, is_test_flag=True)
+            tag_space, tag_scores, tag_space_iden, tag_scores_iden = model(sentence_in, batch_sent_lens, gpu, is_test_flag=True, data_flag=data_flag)
 
         _, tag_outputs = tag_scores.data.max(1)
         _, tag_outputs_iden = tag_scores_iden.data.max(1)

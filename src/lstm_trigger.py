@@ -65,21 +65,26 @@ class LSTMTrigger(nn.Module):
                 self.maxp2 = nn.MaxPool1d(self.position_size-self.kernal_size2+1)
         self.drop = nn.Dropout(args.dropout)
         self.lstm = nn.LSTM(embedding_dim, self.lstm_hidden_dim, num_layers=self.lstm_layer, bidirectional=self.bilstm_flag)
+
+        # attention part
+        self.use_attention = False
+        self.concat_att = False
+        self.att_lin = nn.Linear(self.lstm_hidden_dim*2, self.lstm_hidden_dim*2)
+        self.att_global = nn.Linear(self.lstm_hidden_dim*2, 1, bias=False)
+        self.att_multi = nn.Linear(self.lstm_hidden_dim*2, 80, bias=False)
+        self.tanh = nn.Tanh()
+        self.register_buffer("mask",torch.FloatTensor())
+
+
         if self.hidden_dim_snd != -1:
             self.fst_hidden = nn.Linear(self.hidden_dim_fst, self.hidden_dim_snd)
             self.hidden2tag = nn.Linear(self.hidden_dim_snd, tagset_size)
             self.hidden2tag_iden = nn.Linear(self.hidden_dim_snd, 2)
         else: # if hidden_dim_snd == -1, we do not use this linear layer
+            if self.concat_att: self.hidden_dim_fst *= 2
             self.hidden2tag = nn.Linear(self.hidden_dim_fst, tagset_size)
             self.hidden2tag_iden = nn.Linear(self.hidden_dim_fst, 2)
         self.hidden = self.init_hidden(gpu)
-
-        # attention part
-        self.use_attention = True
-        self.att_lin = nn.Linear(self.lstm_hidden_dim*2, self.lstm_hidden_dim*2)
-        self.att = nn.Linear(self.lstm_hidden_dim*2, 1, bias=False)
-        self.tanh = nn.Tanh()
-        self.register_buffer("mask",torch.FloatTensor())
 
         if gpu:
             self.drop = self.drop.cuda()
@@ -94,7 +99,8 @@ class LSTMTrigger(nn.Module):
             self.hidden2tag_iden = self.hidden2tag_iden.cuda()
             if self.use_attention:
                 self.att_lin = self.att_lin.cuda()
-                self.att = self.att.cuda()
+                self.att_global = self.att_global.cuda()
+                self.att_multi = self.att_multi.cuda()
                 self.tanh = self.tanh.cuda()
 
 
@@ -133,19 +139,41 @@ class LSTMTrigger(nn.Module):
         positions = [autograd.Variable(position, requires_grad=False) for position in positions]
         return positions
 
-    def lstm_out_attention(self, embed_sents, len_s):
+    # embed_sents: sent_len * batch_size * dim
+    def lstm_out_global_attention(self, embed_sents, len_s, debug=False):
         embed_hidden = self.tanh(self.att_lin(embed_sents.view(embed_sents.size(0)*embed_sents.size(1), -1)))
-        #print "## embed_hidden", embed_hidden
-        attend = self.att(embed_hidden).view(embed_sents.size(0), embed_sents.size(1)).transpose(0, 1)
-        #print "## attend", attend
-        all_att = self._masked_softmax(attend,self._list_to_bytemask(list(len_s))).transpose(0,1) # attW,sent
-        #print "## all_att", all_att
-        #print "## embed_sents", embed_sents
+        if debug: print "## embed_hidden", embed_hidden.size()
+        attend = self.att_global(embed_hidden).view(embed_sents.size(0), embed_sents.size(1)).transpose(0, 1)
+        if debug: print "## attend", attend.size()
+        byte_mask = self._list_to_bytemask(list(len_s))
+        if debug: print "## byte mask", byte_mask.size()
+        all_att = self._masked_softmax(attend, byte_mask).transpose(0,1) # attW,sent
+        if debug: print "## all_att", all_att.size()
+        if debug: print "## embed_sents", embed_sents.size()
         attended = all_att.unsqueeze(2).expand_as(embed_sents) * embed_sents
-        #print "## attended", attended
-
+        if debug: print "## attended", attended.size()
         #return attended.sum(0, True).squeeze(0), all_att
-        return attended, all_att
+        return None, all_att
+
+    def lstm_out_attention(self, embed_sents, len_s, debug=False):
+        embed_hidden = self.tanh(self.att_lin(embed_sents.view(embed_sents.size(0)*embed_sents.size(1), -1)))
+        if debug: print "## embed_hidden", embed_hidden.size()
+        attend = self.att_multi(embed_hidden).view(embed_sents.size(0), embed_sents.size(1), -1).transpose(0, 1)
+        if debug: print "## attend", attend.size()
+        byte_mask = self._list_to_bytemask_2(list(len_s), attend.size(2))
+        if debug: print "## byte mask", byte_mask.size()
+        all_att = self._masked_softmax_2(attend, byte_mask).transpose(0, 1) # attW,sent
+        if debug: print "## all_att", all_att.size()
+        if debug: print "## embed_sents", embed_sents.size()
+        embed_sents_new = embed_sents.unsqueeze(3).expand(embed_sents.size(0), embed_sents.size(1), embed_sents.size(2), attend.size(2))
+        if debug: print "## new embed_sents", embed_sents_new.size()
+        all_att_new = all_att.unsqueeze(3).expand(all_att.size(0), all_att.size(1), all_att.size(2), embed_sents.size(2)).transpose(2, 3)
+        if debug: print "## new all_att", all_att_new.size()
+        attended = all_att_new * embed_sents_new
+        attended = attended.sum(3, True).squeeze(3)
+        if debug: print "## attended", attended.size()
+
+        return attended, all_att.transpose(0, 1)
 
     def _list_to_bytemask(self,l):
         mask = self._buffers['mask'].resize_(len(l),l[0]).fill_(1)
@@ -153,14 +181,27 @@ class LSTMTrigger(nn.Module):
             if j != l[0]: mask[i,j:l[0]] = 0
         return mask
 
+    def _list_to_bytemask_2(self,l, max_sent_len):
+        mask = self._buffers['mask'].resize_(len(l),l[0], max_sent_len).fill_(1)
+        for i,j in enumerate(l):
+            if j != l[0]: 
+                mask[i,j:l[0],:] = 0
+                mask[i,:,j:80] = 0
+            else: mask[i,:, j:80] = 0
+        return mask
+
     def _masked_softmax(self,mat,mask):
         exp = torch.exp(mat) * Variable(mask,requires_grad=False).cuda()
         sum_exp = exp.sum(1,True)+0.0001
-        return exp/sum_exp.expand_as(exp)       
+        return exp/sum_exp.expand_as(exp)
 
+    def _masked_softmax_2(self,mat,mask):
+        exp = torch.exp(mat) * Variable(mask,requires_grad=False).cuda()
+        sum_exp = exp.sum(2,True)+0.0001
+        return exp/sum_exp.expand_as(exp)
 
     # batch shape: (batch_size, sent_length)
-    def forward(self, batch, batch_sent_lens, gpu, debug=False, use_mask=True, is_test_flag=False, last_batch_size=None):
+    def forward(self, batch, batch_sent_lens, gpu, debug=False, use_mask=True, is_test_flag=False, last_batch_size=None, data_flag=None):
 
         if last_batch_size is None: forward_batch_size = self.batch_size
         else: forward_batch_size = last_batch_size
@@ -252,12 +293,18 @@ class LSTMTrigger(nn.Module):
             lstm_out, self.hidden = self.lstm(embeds_pack, self.hidden)
             hidden_in, len_batch = pad_packed_sequence(lstm_out)
             #print "Before attend", hidden_in
-            hidden_in, att_values = self.lstm_out_attention(hidden_in, len_batch)
+            #_, att_values_global = self.lstm_out_global_attention(hidden_in, len_batch)
+            hidden_in_att, att_values = self.lstm_out_attention(hidden_in, len_batch)
+            if data_flag=="test_final": print att_values.sort(2, descending=True)[1][0]
+                
 
             #print "Aft attend", hidden_in
         if self.use_conv:
             hidden_in = torch.cat((hidden_in, c1_embed, c2_embed), -1)
 
+        if self.concat_att: # concat word_embedding and attention result
+            hidden_in = torch.cat((hidden_in, hidden_in_att), -1)
+        else: hidden_in = hidden_in + hidden_in_att
         hidden_in = hidden_in.transpose(0, 1).contiguous() # batch_size * sent_length * hidden_dim
         hidden_in = hidden_in.view(forward_batch_size*sent_length, -1)
 
