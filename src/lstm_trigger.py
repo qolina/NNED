@@ -23,14 +23,14 @@ class LSTMTrigger(nn.Module):
         self.batch_mode = True if args.batch_size>1 else False
 
         self.use_position = args.use_position
-        self.position_size = 100
-        self.position_dim = 5
+        position_size = 80
+        position_dim = 5
 
         # conv layer
         self.use_conv = args.use_conv
         self.in_channels = embedding_dim
         if self.use_position:
-            self.in_channels += self.position_dim
+            self.in_channels += position_dim
         self.out_channels = args.conv_filter_num
         self.kernal_size1 = args.conv_width1
         self.kernal_size2 = args.conv_width2
@@ -51,7 +51,7 @@ class LSTMTrigger(nn.Module):
         else:
             self.word_embeddings = nn.Embedding(vocab_size, embedding_dim)
             self.word_embeddings.weight.data.copy_(torch.from_numpy(pretrain_embedding))
-        self.position_embeddings = nn.Embedding(self.position_size, self.position_dim)
+        self.position_embeddings = nn.Embedding(self.position_size, position_dim)
 
         self.conv1 = None
         self.conv2 = None
@@ -60,9 +60,6 @@ class LSTMTrigger(nn.Module):
         if self.use_conv:
             self.conv1 = nn.Conv1d(self.in_channels, self.out_channels, self.kernal_size1)
             self.conv2 = nn.Conv1d(self.in_channels, self.out_channels, self.kernal_size2)
-            if self.batch_mode:
-                self.maxp1 = nn.MaxPool1d(self.position_size-self.kernal_size1+1)
-                self.maxp2 = nn.MaxPool1d(self.position_size-self.kernal_size2+1)
         self.drop = nn.Dropout(args.dropout)
         self.lstm = nn.LSTM(embedding_dim, self.lstm_hidden_dim, num_layers=self.lstm_layer, bidirectional=self.bilstm_flag)
 
@@ -132,10 +129,10 @@ class LSTMTrigger(nn.Module):
         outputs = outputs.transpose(1, 2).transpose(0, 1) # 1*batch_size*out_channels
         return outputs
 
-    def position_fea_in_sent(self, sent_length):
+    def position_fea_in_sent(self, batch_size, sent_length):
         positions = [[abs(j) for j in range(-i, sent_length-i)] for i in range(sent_length)]
         positions = [torch.LongTensor(position) for position in positions]
-        positions = [torch.cat([position]*self.batch_size).resize_(self.batch_size, position.size(0)) for position in positions]
+        positions = [torch.cat([position]*batch_size).resize_(batch_size, position.size(0)) for position in positions]
         positions = [autograd.Variable(position, requires_grad=False) for position in positions]
         return positions
 
@@ -211,7 +208,7 @@ class LSTMTrigger(nn.Module):
         else:
             sent_length = batch.size(1)
 
-        positions = self.position_fea_in_sent(sent_length)
+        positions = self.position_fea_in_sent(forward_batch_size, sent_length)
         embeds = self.word_embeddings(batch) # size: batch_size*sent_length*word_embed_size
         if debug:
             print "## sent embeds", batch.data.size(), embeds.data.size(), torch.sum(embeds.data)
@@ -294,17 +291,18 @@ class LSTMTrigger(nn.Module):
             hidden_in, len_batch = pad_packed_sequence(lstm_out)
             #print "Before attend", hidden_in
             #_, att_values_global = self.lstm_out_global_attention(hidden_in, len_batch)
-            hidden_in_att, att_values = self.lstm_out_attention(hidden_in, len_batch)
-            if data_flag=="test_final": print att_values.sort(2, descending=True)[1][0]
+            if self.use_attention:
+                hidden_in_att, att_values = self.lstm_out_attention(hidden_in, len_batch)
+                if data_flag=="test_final": print att_values.sort(2, descending=True)[1][0]
                 
 
-            #print "Aft attend", hidden_in
+        if self.use_attention:
+            if self.concat_att: # concat word_embedding and attention result
+                hidden_in = torch.cat((hidden_in, hidden_in_att), -1)
+            else: hidden_in = hidden_in + hidden_in_att
         if self.use_conv:
             hidden_in = torch.cat((hidden_in, c1_embed, c2_embed), -1)
 
-        if self.concat_att: # concat word_embedding and attention result
-            hidden_in = torch.cat((hidden_in, hidden_in_att), -1)
-        else: hidden_in = hidden_in + hidden_in_att
         hidden_in = hidden_in.transpose(0, 1).contiguous() # batch_size * sent_length * hidden_dim
         hidden_in = hidden_in.view(forward_batch_size*sent_length, -1)
 

@@ -9,9 +9,6 @@
 3. prepareDataSet.py
 	Extract One-Sentence-One-Event events, and output all OSOE event instances into one file (train.oneEventSent.txt)
 
-4. bs_attention.py
-	Baseline: use attention to conduct argument extraction
-
 ######################### utility programs
 1. aceEventUtil.py
 	transition from ace event to event string, and vice versa
